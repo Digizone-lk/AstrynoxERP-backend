@@ -2,6 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.routers import quotations, quotations_pdf
+from app.routers import clients
+from app.routers import products
+from app.routers import auth, users
 
 app = FastAPI(
     title="BillFlow API",
@@ -19,6 +22,10 @@ app.add_middleware(
 
 app.include_router(quotations.router)
 app.include_router(quotations_pdf.router)
+app.include_router(clients.router)
+app.include_router(products.router)
+app.include_router(auth.router)
+app.include_router(users.router)
 
 
 @app.get("/health")

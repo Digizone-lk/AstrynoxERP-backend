@@ -7,6 +7,8 @@ from app.core.database import Base
 
 
 class ClientProduct(Base):
+    """Maps a client-specific product to a client. Products with is_global=False
+    must be assigned here to be selectable when that client is chosen."""
     __tablename__ = "client_products"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -21,4 +23,5 @@ class ClientProduct(Base):
 
     __table_args__ = (
         UniqueConstraint("client_id", "product_id", name="uq_client_product"),
+        UniqueConstraint("org_id", "client_id", "product_id", name="uq_client_product"),
     )

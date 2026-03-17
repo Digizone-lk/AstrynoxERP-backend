@@ -13,17 +13,13 @@ class Product(Base):
     org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    unit_price = Column(Numeric(12, 2), nullable=False)
-    unit = Column(String(50), default="pcs", nullable=False)
-    currency = Column(String(10), default="USD", nullable=False)
-    is_global = Column(Boolean, default=True, nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
+    unit_price = Column(Numeric(12, 2), nullable=False, default=0)
+    unit = Column(String(50), default="pcs")  # pcs, hrs, kg, etc.
+    currency = Column(String(10), default="USD")
+    is_global = Column(Boolean, default=True)  # True = available for all clients
+    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
-    )
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     organization = relationship("Organization", back_populates="products")
     client_products = relationship("ClientProduct", back_populates="product", cascade="all, delete-orphan")
