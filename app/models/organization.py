@@ -23,3 +23,4 @@ class Organization(Base):
     quotations = relationship("Quotation", back_populates="organization", cascade="all, delete-orphan")
     invoices = relationship("Invoice", back_populates="organization", cascade="all, delete-orphan")
     audit_logs = relationship("AuditLog", back_populates="organization", cascade="all, delete-orphan")
+    client_products = relationship("ClientProduct", back_populates="organization", cascade="all, delete-orphan")
