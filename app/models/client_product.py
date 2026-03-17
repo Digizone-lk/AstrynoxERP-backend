@@ -17,9 +17,11 @@ class ClientProduct(Base):
     product_id = Column(UUID(as_uuid=True), ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
+    organization = relationship("Organization", back_populates="client_products")
     client = relationship("Client", back_populates="client_products")
     product = relationship("Product", back_populates="client_products")
 
     __table_args__ = (
+        UniqueConstraint("client_id", "product_id", name="uq_client_product"),
         UniqueConstraint("org_id", "client_id", "product_id", name="uq_client_product"),
     )

@@ -10,10 +10,11 @@ class ClientProductAssign(BaseModel):
 
 class ClientProductOut(BaseModel):
     id: UUID
+    org_id: UUID
     client_id: UUID
     product_id: UUID
-    product: ProductOut
     created_at: datetime
+    product: Optional[ProductOut] = None
 
     class Config:
         from_attributes = True
