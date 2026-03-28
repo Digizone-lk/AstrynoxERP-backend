@@ -5,6 +5,10 @@ from app.routers import quotations, quotations_pdf
 from app.routers import clients
 from app.routers import products
 from app.routers import auth, users
+from app.routers import invoices
+from app.routers import dashboard
+from app.routers import reports
+from app.routers import audit
 
 app = FastAPI(
     title="BillFlow API",
@@ -26,6 +30,14 @@ app.include_router(clients.router)
 app.include_router(products.router)
 app.include_router(auth.router)
 app.include_router(users.router)
+app.include_router(clients.router)
+app.include_router(products.router)
+app.include_router(quotations.router)
+app.include_router(quotations_pdf.router)
+app.include_router(invoices.router)
+app.include_router(dashboard.router)
+app.include_router(reports.router)
+app.include_router(audit.router)
 
 
 @app.get("/health")

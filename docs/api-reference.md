@@ -45,7 +45,6 @@ Register a new organisation and create its first Super Admin user. Sets `access_
 **Errors:**
 - `400` — Invalid slug format
 - `409` — Organisation slug already taken
-- `409` — Email already registered
 
 ---
 
@@ -73,6 +72,7 @@ Authenticate and set session cookies.
 
 **Errors:**
 - `401` — Invalid credentials
+- `403` — Organisation is inactive
 
 ---
 
@@ -385,7 +385,7 @@ Soft-delete a product (sets `is_active = false`).
 
 **Access:** `super_admin`, `sales`
 
-**Response:** `200 OK`
+**Response:** `204 No Content`
 
 **Errors:**
 - `404` — Product not found
@@ -544,9 +544,8 @@ Convert an `approved` quotation into an invoice. Quotation status becomes `conve
 ```
 
 **Errors:**
-- `400` — Quotation is not `approved`
+- `400` — Quotation is not `approved` (also fires if already `converted`)
 - `404` — Quotation not found
-- `409` — Quotation already converted
 
 ---
 

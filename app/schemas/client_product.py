@@ -1,5 +1,6 @@
 from uuid import UUID
 from datetime import datetime
+from typing import Optional
 from pydantic import BaseModel
 from app.schemas.product import ProductOut
 
