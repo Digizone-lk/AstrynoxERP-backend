@@ -1,6 +1,7 @@
 import re
 import hashlib
 from datetime import datetime, timedelta, timezone
+from uuid import UUID as PyUUID
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, Cookie, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
@@ -105,6 +106,10 @@ def login(
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
+    org = db.query(Organization).filter(Organization.id == user.org_id).first()
+    if not org or not org.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Organization is inactive")
+
     return _set_tokens(response, user, db, request)
 
 
@@ -127,10 +132,20 @@ def refresh(
         UserSession.refresh_token_hash == token_hash,
         UserSession.is_active == True,
     ).first()
-    if not session or session.expires_at < datetime.now(timezone.utc):
+    if not session:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired or revoked")
+    now = datetime.now(timezone.utc)
+    expires = session.expires_at
+    if expires.tzinfo is None:
+        now = now.replace(tzinfo=None)
+    if expires < now:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired or revoked")
 
-    user = db.query(User).filter(User.id == payload.get("sub"), User.is_active == True).first()
+    try:
+        user_id = PyUUID(payload.get("sub"))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+    user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
@@ -166,9 +181,13 @@ def me(db: Session = Depends(get_db), access_token: str = Cookie(None)):
     if not access_token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     payload = decode_token(access_token)
-    if not payload:
+    if not payload or payload.get("type") != "access":
         raise HTTPException(status_code=401, detail="Invalid token")
-    user = db.query(User).filter(User.id == payload.get("sub"), User.is_active == True).first()
+    try:
+        user_id = PyUUID(payload.get("sub"))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=401, detail="Invalid token")
+    user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
     org = db.query(Organization).filter(Organization.id == user.org_id).first()

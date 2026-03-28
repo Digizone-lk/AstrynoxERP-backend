@@ -27,6 +27,7 @@ import app.models.client_product  # noqa
 import app.models.quotation     # noqa
 import app.models.invoice       # noqa
 import app.models.audit_log     # noqa
+import app.models.user_session  # noqa
 
 from app.main import app  # import after env vars are set
 
