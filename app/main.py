@@ -6,7 +6,7 @@ from app.core.config import settings
 from app.routers import quotations, quotations_pdf
 from app.routers import clients
 from app.routers import products
-from app.routers import auth, users, profile
+from app.routers import auth, users, profile, organization
 from app.routers import invoices
 from app.routers import dashboard
 from app.routers import reports
@@ -32,8 +32,9 @@ os.makedirs(static_dir, exist_ok=True)
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 app.include_router(auth.router)
+app.include_router(profile.router)   # must be before users.router — /me/* routes take priority over /{user_id}/*
 app.include_router(users.router)
-app.include_router(profile.router)
+app.include_router(organization.router)
 app.include_router(clients.router)
 app.include_router(products.router)
 app.include_router(quotations.router)
