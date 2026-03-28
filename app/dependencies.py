@@ -1,3 +1,4 @@
+from uuid import UUID as PyUUID
 from typing import List
 from fastapi import Depends, HTTPException, status, Cookie
 from sqlalchemy.orm import Session
@@ -17,8 +18,13 @@ def get_current_user(
     if not payload or payload.get("type") != "access":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
-    user_id = payload.get("sub")
-    if not user_id:
+    user_id_str = payload.get("sub")
+    if not user_id_str:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+    try:
+        user_id = PyUUID(user_id_str)
+    except (ValueError, AttributeError):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
     user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
