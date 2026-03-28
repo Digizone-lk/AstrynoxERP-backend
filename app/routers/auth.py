@@ -1,22 +1,44 @@
 import re
-from datetime import timedelta
-from fastapi import APIRouter, Depends, HTTPException, Response, Cookie, status
+import hashlib
+from datetime import datetime, timedelta, timezone
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, Cookie, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import verify_password, hash_password, create_access_token, create_refresh_token, decode_token
 from app.core.config import settings
 from app.models.organization import Organization
 from app.models.user import User, UserRole
+from app.models.user_session import UserSession
 from app.schemas.auth import LoginRequest, TokenResponse, RegisterOrgRequest
 from app.schemas.user import UserOut
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
-def _set_tokens(response: Response, user: User) -> TokenResponse:
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _set_tokens(response: Response, user: User, db: Session, request: Request) -> TokenResponse:
     data = {"sub": str(user.id), "org_id": str(user.org_id), "role": user.role.value}
     access_token = create_access_token(data)
     refresh_token = create_refresh_token(data)
+
+    token_hash = _hash_token(refresh_token)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    device_info = request.headers.get("user-agent", "")[:500] or None
+    ip_address = request.client.host if request.client else None
+
+    session = UserSession(
+        user_id=user.id,
+        org_id=user.org_id,
+        refresh_token_hash=token_hash,
+        device_info=device_info,
+        ip_address=ip_address,
+        expires_at=expires_at,
+    )
+    db.add(session)
+    db.commit()
 
     response.set_cookie(
         key="access_token",
@@ -38,8 +60,12 @@ def _set_tokens(response: Response, user: User) -> TokenResponse:
 
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-def register_organization(payload: RegisterOrgRequest, response: Response, db: Session = Depends(get_db)):
-    # Validate slug
+def register_organization(
+    payload: RegisterOrgRequest,
+    response: Response,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     if not re.match(r"^[a-z0-9-]+$", payload.org_slug):
         raise HTTPException(status_code=400, detail="Slug must be lowercase alphanumeric with hyphens only")
 
@@ -64,21 +90,31 @@ def register_organization(payload: RegisterOrgRequest, response: Response, db: S
     db.commit()
     db.refresh(user)
 
-    _set_tokens(response, user)
+    _set_tokens(response, user, db, request)
     return user
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)):
+def login(
+    payload: LoginRequest,
+    response: Response,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     user = db.query(User).filter(User.email == payload.email, User.is_active == True).first()
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    return _set_tokens(response, user)
+    return _set_tokens(response, user, db, request)
 
 
 @router.post("/refresh", response_model=TokenResponse)
-def refresh(response: Response, refresh_token: str = Cookie(None), db: Session = Depends(get_db)):
+def refresh(
+    response: Response,
+    request: Request,
+    refresh_token: str = Cookie(None),
+    db: Session = Depends(get_db),
+):
     if not refresh_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No refresh token")
 
@@ -86,15 +122,40 @@ def refresh(response: Response, refresh_token: str = Cookie(None), db: Session =
     if not payload or payload.get("type") != "refresh":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
 
+    token_hash = _hash_token(refresh_token)
+    session = db.query(UserSession).filter(
+        UserSession.refresh_token_hash == token_hash,
+        UserSession.is_active == True,
+    ).first()
+    if not session or session.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired or revoked")
+
     user = db.query(User).filter(User.id == payload.get("sub"), User.is_active == True).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
-    return _set_tokens(response, user)
+    # Revoke old session before issuing new one
+    session.is_active = False
+    db.commit()
+
+    return _set_tokens(response, user, db, request)
 
 
 @router.post("/logout")
-def logout(response: Response):
+def logout(
+    response: Response,
+    refresh_token: str = Cookie(None),
+    db: Session = Depends(get_db),
+):
+    if refresh_token:
+        token_hash = _hash_token(refresh_token)
+        session = db.query(UserSession).filter(
+            UserSession.refresh_token_hash == token_hash,
+        ).first()
+        if session:
+            session.is_active = False
+            db.commit()
+
     response.delete_cookie("access_token")
     response.delete_cookie("refresh_token")
     return {"message": "Logged out"}
