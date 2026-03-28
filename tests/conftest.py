@@ -12,6 +12,7 @@ os.environ.setdefault("SECRET_KEY", "test-only-secret-key-do-not-use-in-producti
 os.environ.setdefault("ENVIRONMENT", "test")
 
 import pytest
+from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -48,6 +49,15 @@ app.dependency_overrides[get_db] = override_get_db
 
 
 # ─── Schema-level setup (once per session) ────────────────────────────────────
+
+@pytest.fixture(scope="session", autouse=True)
+def mock_cloudinary():
+    """Mock Cloudinary so avatar tests don't need real credentials."""
+    fake_result = {"secure_url": "https://res.cloudinary.com/test/image/upload/avatars/test.jpg"}
+    with patch("cloudinary.uploader.upload", return_value=fake_result), \
+         patch("cloudinary.uploader.destroy", return_value={"result": "ok"}):
+        yield
+
 
 @pytest.fixture(scope="session", autouse=True)
 def create_tables():

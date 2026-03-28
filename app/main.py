@@ -1,7 +1,5 @@
-import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 from app.routers import quotations, quotations_pdf
 from app.routers import clients
@@ -25,11 +23,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Serve static files (avatars, etc.)
-static_dir = os.path.join(os.path.dirname(__file__), "static")
-os.makedirs(static_dir, exist_ok=True)
-app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 app.include_router(auth.router)
 app.include_router(profile.router)   # must be before users.router — /me/* routes take priority over /{user_id}/*

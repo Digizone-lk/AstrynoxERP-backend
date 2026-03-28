@@ -1,13 +1,16 @@
 import hashlib
-import os
+import io
 import uuid as uuid_lib
 from datetime import datetime, timezone
 from typing import List
+import cloudinary
+import cloudinary.uploader
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Cookie, status
 from sqlalchemy.orm import Session
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import verify_password, hash_password, decode_token
-from app.dependencies import get_current_user, get_any_authenticated
+from app.dependencies import get_any_authenticated
 from app.models.audit_log import AuditLog
 from app.models.organization import Organization
 from app.models.user import User, DEFAULT_NOTIFICATION_PREFS
@@ -24,9 +27,14 @@ from app.services.audit import log_action
 
 router = APIRouter(prefix="/api/users/me", tags=["profile"])
 
-AVATAR_DIR = os.path.join(os.path.dirname(__file__), "..", "static", "avatars")
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 MAX_AVATAR_SIZE = 2 * 1024 * 1024  # 2 MB
+
+cloudinary.config(
+    cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+    api_key=settings.CLOUDINARY_API_KEY,
+    api_secret=settings.CLOUDINARY_API_SECRET,
+)
 
 
 def _build_profile_out(user: User, db: Session) -> UserProfileOut:
@@ -101,15 +109,19 @@ def upload_avatar(
     if len(content) > MAX_AVATAR_SIZE:
         raise HTTPException(status_code=400, detail="Avatar must be smaller than 2 MB")
 
-    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "jpg"
-    os.makedirs(AVATAR_DIR, exist_ok=True)
-    filename = f"{current_user.id}.{ext}"
-    filepath = os.path.join(AVATAR_DIR, filename)
+    try:
+        result = cloudinary.uploader.upload(
+            io.BytesIO(content),
+            public_id=f"avatars/{current_user.id}",
+            overwrite=True,
+            resource_type="image",
+            transformation={"width": 256, "height": 256, "crop": "fill", "gravity": "face"},
+        )
+        avatar_url = result["secure_url"]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Avatar upload failed: {str(e)}")
 
-    with open(filepath, "wb") as f:
-        f.write(content)
-
-    current_user.avatar_url = f"/static/avatars/{filename}"
+    current_user.avatar_url = avatar_url
     db.commit()
     db.refresh(current_user)
     log_action(db, current_user, "UPDATE", "user_avatar", str(current_user.id))
@@ -122,10 +134,11 @@ def delete_avatar(
     current_user: User = Depends(get_any_authenticated),
 ):
     if current_user.avatar_url:
-        filename = current_user.avatar_url.rsplit("/", 1)[-1]
-        filepath = os.path.join(AVATAR_DIR, filename)
-        if os.path.exists(filepath):
-            os.remove(filepath)
+        try:
+            cloudinary.uploader.destroy(f"avatars/{current_user.id}", resource_type="image")
+        except Exception:
+            pass  # Don't fail if Cloudinary delete errors — DB cleanup still proceeds
+
         current_user.avatar_url = None
         db.commit()
         db.refresh(current_user)
