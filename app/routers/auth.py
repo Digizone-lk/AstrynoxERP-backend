@@ -1,6 +1,7 @@
 import re
 import hashlib
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 from uuid import UUID as PyUUID
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, Cookie, status
 from sqlalchemy.orm import Session
@@ -12,6 +13,7 @@ from app.models.user import User, UserRole
 from app.models.user_session import UserSession
 from app.schemas.auth import LoginRequest, TokenResponse, RegisterOrgRequest
 from app.schemas.user import UserOut
+from app.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -57,7 +59,7 @@ def _set_tokens(response: Response, user: User, db: Session, request: Request) -
         samesite="lax",
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
     )
-    return TokenResponse(access_token=access_token)
+    return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
@@ -117,7 +119,7 @@ def login(
 def refresh(
     response: Response,
     request: Request,
-    refresh_token: str = Cookie(None),
+    refresh_token: Optional[str] = Cookie(None),
     db: Session = Depends(get_db),
 ):
     if not refresh_token:
@@ -159,7 +161,7 @@ def refresh(
 @router.post("/logout")
 def logout(
     response: Response,
-    refresh_token: str = Cookie(None),
+    refresh_token: Optional[str] = Cookie(None),
     db: Session = Depends(get_db),
 ):
     if refresh_token:
@@ -177,19 +179,7 @@ def logout(
 
 
 @router.get("/me", response_model=UserOut)
-def me(db: Session = Depends(get_db), access_token: str = Cookie(None)):
-    if not access_token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    payload = decode_token(access_token)
-    if not payload or payload.get("type") != "access":
-        raise HTTPException(status_code=401, detail="Invalid token")
-    try:
-        user_id = PyUUID(payload.get("sub"))
-    except (ValueError, TypeError):
-        raise HTTPException(status_code=401, detail="Invalid token")
-    user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
+def me(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     org = db.query(Organization).filter(Organization.id == user.org_id).first()
     user_dict = UserOut.model_validate(user).model_dump()
     user_dict["org_currency"] = org.currency if org else "USD"

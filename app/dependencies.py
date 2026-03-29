@@ -1,6 +1,6 @@
 from uuid import UUID as PyUUID
-from typing import List
-from fastapi import Depends, HTTPException, status, Cookie
+from typing import List, Optional
+from fastapi import Depends, HTTPException, status, Cookie, Header
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import decode_token
@@ -8,13 +8,21 @@ from app.models.user import User, UserRole
 
 
 def get_current_user(
-    access_token: str = Cookie(None),
+    access_token: Optional[str] = Cookie(None),
+    authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
 ) -> User:
-    if not access_token:
+    # Prefer Authorization: Bearer header, fall back to cookie
+    token: Optional[str] = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
+    elif access_token:
+        token = access_token
+
+    if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
-    payload = decode_token(access_token)
+    payload = decode_token(token)
     if not payload or payload.get("type") != "access":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
