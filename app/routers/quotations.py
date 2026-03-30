@@ -37,6 +37,14 @@ def _build_items(quotation_id, items_data, db):
     return items
 
 
+@router.get("/next-number")
+def get_next_quote_number(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_any_authenticated),
+):
+    return {"quote_number": next_quote_number(db, current_user.org_id)}
+
+
 @router.get("/", response_model=List[QuotationOut])
 def list_quotations(
     status: Optional[QuotationStatus] = Query(None),
