@@ -20,6 +20,14 @@ def _get_invoice_user(current_user: User = Depends(get_any_authenticated)) -> Us
     return current_user
 
 
+@router.get("/next-number")
+def get_next_invoice_number(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_any_authenticated),
+):
+    return {"invoice_number": next_invoice_number(db, current_user.org_id)}
+
+
 @router.get("/", response_model=List[InvoiceOut])
 def list_invoices(
     status: Optional[InvoiceStatus] = Query(None),
