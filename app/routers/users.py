@@ -114,6 +114,25 @@ def deactivate_user(
     return user
 
 
+@router.post("/{user_id}/reactivate", response_model=UserOut)
+def reactivate_user(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_super_admin),
+):
+    user = db.query(User).filter(User.id == user_id, User.org_id == current_user.org_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.is_active:
+        raise HTTPException(status_code=400, detail="User is already active")
+
+    user.is_active = True
+    db.commit()
+    db.refresh(user)
+    log_action(db, current_user, "UPDATE", "user", str(user_id), extra_data={"action": "reactivate"})
+    return user
+
+
 @router.get("/{user_id}/activity", response_model=List[UserActivityOut])
 def get_user_activity(
     user_id: UUID,

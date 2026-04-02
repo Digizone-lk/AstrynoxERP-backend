@@ -282,6 +282,51 @@ def test_cancel_viewer_forbidden(viewer_client, make_invoice):
     assert r.status_code == 403
 
 
+# ─── Next invoice number ──────────────────────────────────────────────────────
+
+def test_next_invoice_number_no_invoices(admin_client):
+    r = admin_client.get(f"{BASE}/next-number")
+    assert r.status_code == 200
+    assert r.json() == {"invoice_number": "INV-0001"}
+
+
+def test_next_invoice_number_after_one_invoice(admin_client, make_invoice):
+    make_invoice()
+    r = admin_client.get(f"{BASE}/next-number")
+    assert r.status_code == 200
+    assert r.json() == {"invoice_number": "INV-0002"}
+
+
+def test_next_invoice_number_increments_correctly(admin_client, make_client, make_product):
+    client = make_client()
+    product = make_product()
+    payload = _invoice_payload(client["id"], product["id"])
+    for _ in range(3):
+        admin_client.post(f"{BASE}/", json=payload)
+    r = admin_client.get(f"{BASE}/next-number")
+    assert r.json() == {"invoice_number": "INV-0004"}
+
+
+def test_next_invoice_number_all_roles_allowed(
+    admin_client, sales_client, accountant_client, viewer_client
+):
+    for client in [admin_client, sales_client, accountant_client, viewer_client]:
+        r = client.get(f"{BASE}/next-number")
+        assert r.status_code == 200
+        assert "invoice_number" in r.json()
+
+
+def test_next_invoice_number_unauthenticated(anon_client):
+    r = anon_client.get(f"{BASE}/next-number")
+    assert r.status_code == 401
+
+
+def test_next_invoice_number_tenant_isolation(admin_client, second_org_admin, make_invoice):
+    make_invoice()  # created under admin_client's org
+    r = second_org_admin.get(f"{BASE}/next-number")
+    assert r.json() == {"invoice_number": "INV-0001"}
+
+
 # ─── Pagination ───────────────────────────────────────────────────────────────
 
 def test_list_invoices_pagination(admin_client, make_client, make_product):
