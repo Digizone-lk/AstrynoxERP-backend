@@ -156,6 +156,68 @@ def test_deactivate_user_blocks_login(admin_client):
     assert r.status_code == 401
 
 
+# ─── Reactivate ───────────────────────────────────────────────────────────────
+
+def test_reactivate_user(admin_client):
+    r = admin_client.post(f"{BASE}/", json={
+        "email": "react@acme.com", "full_name": "React", "password": "Secret123!", "role": "viewer",
+    })
+    uid = r.json()["id"]
+    admin_client.post(f"{BASE}/{uid}/deactivate")
+    r2 = admin_client.post(f"{BASE}/{uid}/reactivate")
+    assert r2.status_code == 200
+    assert r2.json()["is_active"] is True
+
+
+def test_reactivate_already_active_rejected(admin_client):
+    r = admin_client.post(f"{BASE}/", json={
+        "email": "react2@acme.com", "full_name": "React2", "password": "Secret123!", "role": "viewer",
+    })
+    uid = r.json()["id"]
+    r2 = admin_client.post(f"{BASE}/{uid}/reactivate")
+    assert r2.status_code == 400
+    assert "already active" in r2.json()["detail"].lower()
+
+
+def test_reactivate_user_not_found(admin_client):
+    r = admin_client.post(f"{BASE}/00000000-0000-0000-0000-000000000001/reactivate")
+    assert r.status_code == 404
+
+
+def test_reactivate_user_other_org_returns_404(admin_client, second_org_admin):
+    other_users = second_org_admin.get(f"{BASE}/").json()
+    uid = other_users[0]["id"]
+    # deactivate in the other org first
+    second_org_admin.post(f"{BASE}/{uid}/deactivate")
+    r = admin_client.post(f"{BASE}/{uid}/reactivate")
+    assert r.status_code == 404
+
+
+def test_reactivate_non_admin_forbidden(sales_client, admin_client):
+    r = admin_client.post(f"{BASE}/", json={
+        "email": "react3@acme.com", "full_name": "React3", "password": "Secret123!", "role": "viewer",
+    })
+    uid = r.json()["id"]
+    admin_client.post(f"{BASE}/{uid}/deactivate")
+    r2 = sales_client.post(f"{BASE}/{uid}/reactivate")
+    assert r2.status_code == 403
+
+
+def test_reactivate_restores_login(admin_client):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    admin_client.post(f"{BASE}/", json={
+        "email": "react4@acme.com", "full_name": "React4", "password": "Secret123!", "role": "viewer",
+    })
+    users = admin_client.get(f"{BASE}/").json()
+    uid = next(u["id"] for u in users if u["email"] == "react4@acme.com")
+    admin_client.post(f"{BASE}/{uid}/deactivate")
+    admin_client.post(f"{BASE}/{uid}/reactivate")
+    tc = TestClient(app)
+    r = tc.post("/api/auth/login", json={"email": "react4@acme.com", "password": "Secret123!"})
+    assert r.status_code == 200
+
+
 # ─── Admin password reset ─────────────────────────────────────────────────────
 
 def test_admin_reset_password(admin_client):

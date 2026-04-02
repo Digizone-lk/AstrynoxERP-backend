@@ -271,6 +271,51 @@ def test_convert_viewer_forbidden(viewer_client, make_quotation):
     assert r.status_code == 403
 
 
+# ─── Next quotation number ────────────────────────────────────────────────────
+
+def test_next_quote_number_no_quotations(admin_client):
+    r = admin_client.get(f"{BASE}/next-number")
+    assert r.status_code == 200
+    assert r.json() == {"quote_number": "QUO-0001"}
+
+
+def test_next_quote_number_after_one_quotation(admin_client, make_quotation):
+    make_quotation()
+    r = admin_client.get(f"{BASE}/next-number")
+    assert r.status_code == 200
+    assert r.json() == {"quote_number": "QUO-0002"}
+
+
+def test_next_quote_number_increments_correctly(admin_client, make_client, make_product):
+    client = make_client()
+    product = make_product()
+    payload = _quote_payload(client["id"], product["id"])
+    for _ in range(3):
+        admin_client.post(f"{BASE}/", json=payload)
+    r = admin_client.get(f"{BASE}/next-number")
+    assert r.json() == {"quote_number": "QUO-0004"}
+
+
+def test_next_quote_number_all_roles_allowed(
+    admin_client, sales_client, accountant_client, viewer_client
+):
+    for client in [admin_client, sales_client, accountant_client, viewer_client]:
+        r = client.get(f"{BASE}/next-number")
+        assert r.status_code == 200
+        assert "quote_number" in r.json()
+
+
+def test_next_quote_number_unauthenticated(anon_client):
+    r = anon_client.get(f"{BASE}/next-number")
+    assert r.status_code == 401
+
+
+def test_next_quote_number_tenant_isolation(admin_client, second_org_admin, make_quotation):
+    make_quotation()  # created under admin_client's org
+    r = second_org_admin.get(f"{BASE}/next-number")
+    assert r.json() == {"quote_number": "QUO-0001"}
+
+
 def test_numbering_no_collision_after_gap(admin_client, make_client, make_product):
     """If QUO-0001 exists and QUO-0002 is deleted, next number must be QUO-0003 not QUO-0002."""
     client = make_client()
