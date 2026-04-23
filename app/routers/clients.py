@@ -66,6 +66,9 @@ def update_client(
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
 
+    if "email" in payload.model_fields_set and payload.email is None:
+        raise HTTPException(status_code=422, detail="Email cannot be removed from a client")
+
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(client, field, value)
 

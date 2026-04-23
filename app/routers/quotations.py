@@ -225,6 +225,59 @@ def reject_quotation(
     return quotation
 
 
+@router.post("/{quotation_id}/email-client")
+def email_quotation_to_client(
+    quotation_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_sales_or_admin),
+):
+    """Generate the quotation PDF and send it to the client's email address."""
+    from app.services.pdf import generate_quotation_pdf
+    from app.services.email import send_document_email
+    from app.models.organization import Organization
+
+    quotation = (
+        db.query(Quotation)
+        .options(joinedload(Quotation.client), joinedload(Quotation.items))
+        .filter(Quotation.id == quotation_id, Quotation.org_id == current_user.org_id)
+        .first()
+    )
+    if not quotation:
+        raise HTTPException(status_code=404, detail="Quotation not found")
+    if not quotation.client or not quotation.client.email:
+        raise HTTPException(status_code=400, detail="Client has no email address")
+
+    org = db.query(Organization).filter(Organization.id == current_user.org_id).first()
+    pdf_bytes = generate_quotation_pdf(quotation, org)
+
+    org_name = org.name if org else "BillFlow"
+    subject = f"Quotation {quotation.quote_number} from {org_name}"
+    body_text = (
+        f"Hi {quotation.client.name},\n\n"
+        f"Please find attached quotation {quotation.quote_number}.\n\n"
+        f"Total: {quotation.currency} {float(quotation.total):,.2f}\n\n"
+        f"— {org_name}"
+    )
+    body_html = (
+        f"<p>Hi <strong>{quotation.client.name}</strong>,</p>"
+        f"<p>Please find attached quotation <strong>{quotation.quote_number}</strong>.</p>"
+        f"<p>Total: <strong>{quotation.currency} {float(quotation.total):,.2f}</strong></p>"
+        f"<p>— {org_name}</p>"
+    )
+
+    send_document_email(
+        to=quotation.client.email,
+        subject=subject,
+        body_text=body_text,
+        body_html=body_html,
+        pdf_bytes=pdf_bytes,
+        filename=f"{quotation.quote_number}.pdf",
+    )
+
+    log_action(db, current_user, "EMAIL", "quotation", str(quotation_id), {"to": quotation.client.email})
+    return {"message": f"Quotation emailed to {quotation.client.email}"}
+
+
 @router.post("/{quotation_id}/convert-to-invoice", status_code=status.HTTP_201_CREATED)
 def convert_to_invoice(
     quotation_id: UUID,

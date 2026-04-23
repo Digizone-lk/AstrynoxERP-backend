@@ -6,7 +6,7 @@ from pydantic import BaseModel, EmailStr
 
 class ClientCreate(BaseModel):
     name: str
-    email: Optional[EmailStr] = None
+    email: EmailStr          # required — needed to send quotations and invoices
     phone: Optional[str] = None
     address: Optional[str] = None
     contact_person: Optional[str] = None
@@ -14,7 +14,7 @@ class ClientCreate(BaseModel):
 
 class ClientUpdate(BaseModel):
     name: Optional[str] = None
-    email: Optional[EmailStr] = None
+    email: Optional[EmailStr] = None   # optional in PATCH — omit to leave unchanged
     phone: Optional[str] = None
     address: Optional[str] = None
     contact_person: Optional[str] = None
