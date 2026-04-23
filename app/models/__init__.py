@@ -7,3 +7,4 @@ from app.models.client_product import ClientProduct  # noqa
 from app.models.quotation import Quotation, QuotationItem, QuotationStatus  # noqa
 from app.models.invoice import Invoice, InvoiceItem, InvoiceStatus  # noqa
 from app.models.user_session import UserSession  # noqa
+from app.models.password_reset_token import PasswordResetToken  # noqa

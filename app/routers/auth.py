@@ -1,5 +1,6 @@
 import re
 import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID as PyUUID
@@ -11,9 +12,11 @@ from app.core.config import settings
 from app.models.organization import Organization
 from app.models.user import User, UserRole
 from app.models.user_session import UserSession
-from app.schemas.auth import LoginRequest, TokenResponse, RegisterOrgRequest
+from app.models.password_reset_token import PasswordResetToken
+from app.schemas.auth import LoginRequest, TokenResponse, RegisterOrgRequest, ForgotPasswordRequest, ResetPasswordRequest
 from app.schemas.user import UserOut
 from app.dependencies import get_current_user
+from app.services.email import send_password_reset_email
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -184,3 +187,69 @@ def me(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     user_dict = UserOut.model_validate(user).model_dump()
     user_dict["org_currency"] = org.currency if org else "USD"
     return user_dict
+
+
+@router.post("/forgot-password", status_code=status.HTTP_200_OK)
+def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    # Always return the same response to avoid leaking whether an email exists.
+    generic_response = {"message": "If that email is registered you will receive a reset link shortly."}
+
+    user = db.query(User).filter(User.email == payload.email, User.is_active == True).first()
+    if not user:
+        return generic_response
+
+    # Invalidate any existing unused tokens for this user
+    db.query(PasswordResetToken).filter(
+        PasswordResetToken.user_id == user.id,
+        PasswordResetToken.used == False,
+    ).update({"used": True})
+
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+
+    db.add(PasswordResetToken(user_id=user.id, token_hash=token_hash, expires_at=expires_at))
+    db.commit()
+
+    reset_link = f"{settings.FRONTEND_URL}/reset-password?token={raw_token}"
+    send_password_reset_email(user.email, user.full_name, reset_link)
+
+    return generic_response
+
+
+@router.post("/reset-password", status_code=status.HTTP_200_OK)
+def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
+    if len(payload.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+
+    token_hash = hashlib.sha256(payload.token.encode()).hexdigest()
+    record = db.query(PasswordResetToken).filter(
+        PasswordResetToken.token_hash == token_hash,
+        PasswordResetToken.used == False,
+    ).first()
+
+    if not record:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
+
+    now = datetime.now(timezone.utc)
+    expires = record.expires_at
+    if expires.tzinfo is None:
+        now = now.replace(tzinfo=None)
+    if expires < now:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
+
+    user = db.query(User).filter(User.id == record.user_id, User.is_active == True).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
+
+    user.hashed_password = hash_password(payload.new_password)
+    record.used = True
+
+    # Revoke all active sessions so old devices must log in again
+    db.query(UserSession).filter(
+        UserSession.user_id == user.id,
+        UserSession.is_active == True,
+    ).update({"is_active": False})
+
+    db.commit()
+    return {"message": "Password reset successfully. Please log in with your new password."}
