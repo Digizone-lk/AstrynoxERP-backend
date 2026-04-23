@@ -17,22 +17,27 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
 from app.models.client import Client
 from app.models.invoice import Invoice, InvoiceStatus
+from app.models.organization import Organization
 
 
 #Default Constant Values
-MAX_DATE_RANGE_DAYS = 365                                                                                                                                                                              
+MAX_DATE_RANGE_DAYS = 365
 MAX_RESULTS = 50
+
+# Pre-compute valid status values once so validators don't re-build the set on
+# every call.
+_VALID_STATUSES = {s.value for s in InvoiceStatus}
 
 TOOL_DEFINITIONS = [
 
     # -----------------------------------------------------------------------
     # TOOL: get_invoices - for details
     # -----------------------------------------------------------------------
-    
+
     {
         "type": "function",
         "function": {
@@ -43,8 +48,8 @@ TOOL_DEFINITIONS = [
                 "such as 'What is the duedate of INV-0001 invoice? ', 'Who created INV-0002 and INV-0004 invoices? ', 'Show me the last 5 invoices issued to Acme Corps. ', 'List out the overdue invoices from Acme so far. ' "
                 "Do not use this for total amounts or revenue questions, use get_invoice_summary instead. "
             ),
-            "parameters": { 
-                "type": "object",      
+            "parameters": {
+                "type": "object",
                 "properties": {
                     "invoice_numbers": {
                         "type": "array",
@@ -97,18 +102,18 @@ TOOL_DEFINITIONS = [
     # TOOL: get_invoice_summary - for calculations
     # -----------------------------------------------------------------------
     {
-        "type": "function", # "type" is always "function" for tool-use — OpenAI may add other types
+        "type": "function",
         "function": {
             "name": "get_invoice_summary",
-            "description": ( # "description" is the most important field. # The model uses this to decide WHETHER to call the tool. # Be specific. Mention synonyms the user might say.
+            "description": (
                 "Get total income for a given date range. "
                 "Income is defined as the sum of totals of all PAID invoices "
                 "within the range. Use this when the user asks about revenue, "
                 "earnings, money received, or total income for any time period "
                 "such as 'this month', 'last year', 'between two dates', etc."
             ),
-            "parameters": { # "parameters" tells the model what arguments to fill in.
-                "type": "object",       # always "object" at the top level
+            "parameters": {
+                "type": "object",
                 "properties": {
                     "start_date": {
                         "type": "string",
@@ -122,7 +127,7 @@ TOOL_DEFINITIONS = [
                         ),
                     },
                 },
-                "required": ["start_date", "end_date"], # "required" lists fields the model MUST provide.
+                "required": ["start_date", "end_date"],
             },
         },
     }
@@ -132,30 +137,28 @@ TOOL_DEFINITIONS = [
 
 #TOOL 01: Execute Function get_invoices
 def get_invoices(
-        db: Session, 
-        org_id, 
-        invoice_numbers: list[str] = None, 
-        client_names: list[str] = None, 
-        status: list[str] = None, 
-        start_date: str = None, 
+        db: Session,
+        org_id,
+        invoice_numbers: list[str] = None,
+        client_names: list[str] = None,
+        status: list[str] = None,
+        start_date: str = None,
         end_date: str = None
         ) -> dict:
-    
+
     start = None
     end = None
 
     try:
         if start_date and end_date:
             start = date.fromisoformat(start_date)
-            end   = date.fromisoformat(end_date) 
+            end   = date.fromisoformat(end_date)
         elif start_date:
             start   = date.fromisoformat(start_date)
             end     = date.today()
-
         elif end_date:
             end = date.fromisoformat(end_date)
             start = end - timedelta(days=MAX_DATE_RANGE_DAYS)
-
         else:
             end = date.today()
             start = end - timedelta(days=MAX_DATE_RANGE_DAYS)
@@ -165,12 +168,23 @@ def get_invoices(
 
     if (end - start).days > MAX_DATE_RANGE_DAYS:
         return {"error": f"Date range exceeds maximum allowed {MAX_DATE_RANGE_DAYS} days."}
-            
+
+    # Validate status values before they reach the SQLAlchemy Enum binding.
+    if status:
+        invalid = [s for s in status if s not in _VALID_STATUSES]
+        if invalid:
+            return {
+                "error": (
+                    f"Invalid status value(s): {invalid}. "
+                    f"Valid values are: {sorted(_VALID_STATUSES)}."
+                )
+            }
+
     query = (
             db.query(Invoice, Client.name)
             .join(Client, Invoice.client_id == Client.id)
             .filter(Invoice.org_id == org_id)
-            .filter(Invoice.issue_date >=start)
+            .filter(Invoice.issue_date >= start)
             .filter(Invoice.issue_date <= end)
     )
 
@@ -198,44 +212,53 @@ def get_invoices(
         })
     return {"invoices": results}
 
+
 #TOOL 02: Execute Function get_invoice_summary
 def get_invoice_summary(
     db: Session,
-    org_id,                
-    start_date: str,       
-    end_date: str,         
+    org_id,
+    start_date: str,
+    end_date: str,
 ) -> dict:
 
     try:
-        start = date.fromisoformat(start_date)   # "2026-04-01" → date(2026,4,1)
-        end   = date.fromisoformat(end_date)     # "2026-04-21" → date(2026,4,21)
+        start = date.fromisoformat(start_date)
+        end   = date.fromisoformat(end_date)
     except ValueError:
         return {"error": f"Invalid date format. Expected YYYY-MM-DD, got '{start_date}' / '{end_date}'."}
 
-    # func.coalesce(func.sum(...), 0) — if there are no rows, SUM returns NULL.
-    # coalesce converts NULL → 0 so we always get a number back, never None.
+    # Filter on paid_at (the date payment was actually received) rather than
+    # issue_date, so income is attributed to the correct period.
+    paid_date = func.date(Invoice.paid_at)
+
     total = (
         db.query(func.coalesce(func.sum(Invoice.total), 0))
         .filter(
-            Invoice.org_id == org_id,               # ALWAYS scope to org
-            Invoice.status == InvoiceStatus.PAID,   # only money we've received
-            Invoice.issue_date >= start,            # range start (inclusive)
-            Invoice.issue_date <= end,              # range end (inclusive)
+            Invoice.org_id == org_id,
+            Invoice.status == InvoiceStatus.PAID,
+            Invoice.paid_at.isnot(None),
+            paid_date >= start,
+            paid_date <= end,
         )
-        .scalar()   # .scalar() returns the single value directly, not a Row object
+        .scalar()
     )
 
-    # Count how many invoices contributed, useful context for OpenAI's answer.
     count = (
         db.query(func.count(Invoice.id))
         .filter(
             Invoice.org_id == org_id,
             Invoice.status == InvoiceStatus.PAID,
-            Invoice.issue_date >= start,
-            Invoice.issue_date <= end,
+            Invoice.paid_at.isnot(None),
+            paid_date >= start,
+            paid_date <= end,
         )
         .scalar()
     )
+
+    # Use the org's configured currency as the default rather than a hard-coded
+    # value.  Fall back to "USD" only if the org record is unexpectedly missing.
+    org = db.query(Organization).filter(Organization.id == org_id).first()
+    default_currency = org.currency if org else "USD"
 
     currency_row = (
         db.query(Invoice.currency)
@@ -243,18 +266,19 @@ def get_invoice_summary(
             Invoice.org_id == org_id,
             Invoice.status == InvoiceStatus.PAID,
         )
-        .order_by(Invoice.issue_date.desc())
+        .order_by(Invoice.paid_at.desc())
         .first()
     )
-    currency = currency_row[0] if currency_row else "LKR"
+    currency = currency_row[0] if currency_row else default_currency
 
     return {
-        "total": float(Decimal(str(total))),   # Decimal → float for JSON serialisation
+        "total": float(Decimal(str(total))),
         "invoice_count": count,
         "currency": currency,
         "start_date": start_date,
         "end_date": end_date,
     }
+
 
 # -------------------------- Dispatcher --------------------------- #
 def execute_tool(tool_name: str, tool_parameters: dict, db: Session, org_id) -> dict:
