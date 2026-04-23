@@ -12,6 +12,14 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     OPENAI_API_KEY: str = ""
 
+    # Email / SMTP (all optional — if SMTP_HOST is blank, emails are logged to stdout)
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""
+    FRONTEND_URL: str = "http://localhost:3000"
+
     def get_allowed_origins(self) -> List[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]
 
