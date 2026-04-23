@@ -7,7 +7,7 @@ from app.core.security import hash_password
 from app.dependencies import get_current_user, get_super_admin
 from app.models.audit_log import AuditLog
 from app.models.user import User
-from app.schemas.user import UserCreate, UserUpdate, UserOut, AdminPasswordReset, UserActivityOut
+from app.schemas.user import UserCreate, UserUpdate, UserOut, AdminPasswordReset, UserActivityOut, UserModulesUpdate
 from app.services.audit import log_action
 
 router = APIRouter(prefix="/api/users", tags=["users"])
@@ -130,6 +130,30 @@ def reactivate_user(
     db.commit()
     db.refresh(user)
     log_action(db, current_user, "UPDATE", "user", str(user_id), extra_data={"action": "reactivate"})
+    return user
+
+
+@router.patch("/{user_id}/modules", response_model=UserOut)
+def update_user_modules(
+    user_id: UUID,
+    payload: UserModulesUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_super_admin),
+):
+    """Set or clear the module access list for a user. Pass null to restore full access."""
+    user = db.query(User).filter(User.id == user_id, User.org_id == current_user.org_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.role == user.role.SUPER_ADMIN:
+        raise HTTPException(status_code=400, detail="Cannot restrict module access for super admins")
+
+    user.allowed_modules = payload.allowed_modules
+    db.commit()
+    db.refresh(user)
+    log_action(
+        db, current_user, "UPDATE", "user_modules", str(user_id),
+        extra_data={"allowed_modules": payload.allowed_modules},
+    )
     return user
 
 

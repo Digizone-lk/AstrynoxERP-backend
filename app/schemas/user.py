@@ -1,9 +1,11 @@
 from uuid import UUID
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, EmailStr, field_validator
 import re
 from app.models.user import UserRole, DEFAULT_NOTIFICATION_PREFS
+
+ALL_MODULES = ["dashboard", "clients", "products", "quotations", "invoices", "reports"]
 
 
 class UserCreate(BaseModel):
@@ -28,9 +30,24 @@ class UserOut(BaseModel):
     is_active: bool
     created_at: datetime
     org_currency: str = "USD"
+    allowed_modules: Optional[List[str]] = None
 
     class Config:
         from_attributes = True
+
+
+class UserModulesUpdate(BaseModel):
+    allowed_modules: Optional[List[str]] = None  # null restores full access
+
+    @field_validator("allowed_modules")
+    @classmethod
+    def validate_modules(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is None:
+            return v
+        invalid = [m for m in v if m not in ALL_MODULES]
+        if invalid:
+            raise ValueError(f"Unknown modules: {invalid}. Valid: {ALL_MODULES}")
+        return v
 
 
 class UserProfileOut(UserOut):

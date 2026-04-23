@@ -41,6 +41,7 @@ class User(Base):
     language = Column(String(10), nullable=True, default="en")
     avatar_url = Column(String(500), nullable=True)
     notification_prefs = Column(JSON, nullable=True)
+    allowed_modules = Column(JSON, nullable=True)  # null = all access; list of module keys to restrict
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

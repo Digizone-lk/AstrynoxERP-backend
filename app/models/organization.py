@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Boolean, DateTime, Boolean
+from sqlalchemy import Column, String, Boolean, DateTime, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -14,6 +14,13 @@ class Organization(Base):
     slug = Column(String(100), unique=True, nullable=False, index=True)
     currency = Column(String(10), default="USD")
     is_active = Column(Boolean, default=True)
+    # Branding — shown on PDF documents
+    address = Column(Text, nullable=True)
+    phone = Column(String(50), nullable=True)
+    email = Column(String(255), nullable=True)
+    website = Column(String(255), nullable=True)
+    logo_url = Column(String(500), nullable=True)
+    pdf_template = Column(String(20), default="classic")  # classic | modern | minimal
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

@@ -236,6 +236,7 @@ def download_invoice_pdf(
     current_user: User = Depends(get_any_authenticated),
 ):
     from app.services.pdf import generate_invoice_pdf
+    from app.models.organization import Organization
     invoice = (
         db.query(Invoice)
         .options(joinedload(Invoice.client), joinedload(Invoice.items))
@@ -245,9 +246,63 @@ def download_invoice_pdf(
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
 
-    pdf_bytes = generate_invoice_pdf(invoice)
+    org = db.query(Organization).filter(Organization.id == current_user.org_id).first()
+    pdf_bytes = generate_invoice_pdf(invoice, org)
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{invoice.invoice_number}.pdf"'},
     )
+
+
+@router.post("/{invoice_id}/email-client")
+def email_invoice_to_client(
+    invoice_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_sales_or_admin),
+):
+    """Generate the invoice PDF and send it to the client's email address."""
+    from app.services.pdf import generate_invoice_pdf
+    from app.services.email import send_document_email
+    from app.models.organization import Organization
+
+    invoice = (
+        db.query(Invoice)
+        .options(joinedload(Invoice.client), joinedload(Invoice.items))
+        .filter(Invoice.id == invoice_id, Invoice.org_id == current_user.org_id)
+        .first()
+    )
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    if not invoice.client or not invoice.client.email:
+        raise HTTPException(status_code=400, detail="Client has no email address")
+
+    org = db.query(Organization).filter(Organization.id == current_user.org_id).first()
+    pdf_bytes = generate_invoice_pdf(invoice, org)
+
+    org_name = org.name if org else "BillFlow"
+    subject = f"Invoice {invoice.invoice_number} from {org_name}"
+    body_text = (
+        f"Hi {invoice.client.name},\n\n"
+        f"Please find attached invoice {invoice.invoice_number}.\n\n"
+        f"Total: {invoice.currency} {float(invoice.total):,.2f}\n\n"
+        f"— {org_name}"
+    )
+    body_html = (
+        f"<p>Hi <strong>{invoice.client.name}</strong>,</p>"
+        f"<p>Please find attached invoice <strong>{invoice.invoice_number}</strong>.</p>"
+        f"<p>Total: <strong>{invoice.currency} {float(invoice.total):,.2f}</strong></p>"
+        f"<p>— {org_name}</p>"
+    )
+
+    send_document_email(
+        to=invoice.client.email,
+        subject=subject,
+        body_text=body_text,
+        body_html=body_html,
+        pdf_bytes=pdf_bytes,
+        filename=f"{invoice.invoice_number}.pdf",
+    )
+
+    log_action(db, current_user, "EMAIL", "invoice", str(invoice_id), {"to": invoice.client.email})
+    return {"message": f"Invoice emailed to {invoice.client.email}"}

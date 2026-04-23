@@ -17,6 +17,7 @@ def download_quotation_pdf(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_any_authenticated),
 ):
+    from app.models.organization import Organization
     quotation = (
         db.query(Quotation)
         .options(joinedload(Quotation.client), joinedload(Quotation.items))
@@ -26,7 +27,8 @@ def download_quotation_pdf(
     if not quotation:
         raise HTTPException(status_code=404, detail="Quotation not found")
 
-    pdf_bytes = generate_quotation_pdf(quotation)
+    org = db.query(Organization).filter(Organization.id == current_user.org_id).first()
+    pdf_bytes = generate_quotation_pdf(quotation, org)
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

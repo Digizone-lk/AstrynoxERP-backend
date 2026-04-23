@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID as PyUUID
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, Cookie, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import verify_password, hash_password, create_access_token, create_refresh_token, decode_token
@@ -17,6 +18,7 @@ from app.schemas.auth import LoginRequest, TokenResponse, RegisterOrgRequest, Fo
 from app.schemas.user import UserOut
 from app.dependencies import get_current_user
 from app.services.email import send_password_reset_email
+from app.services.audit import log_action
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -190,13 +192,29 @@ def me(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
 
 
 @router.post("/forgot-password", status_code=status.HTTP_200_OK)
-def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
+def forgot_password(payload: ForgotPasswordRequest, request: Request, db: Session = Depends(get_db)):
     # Always return the same response to avoid leaking whether an email exists.
     generic_response = {"message": "If that email is registered you will receive a reset link shortly."}
 
     user = db.query(User).filter(User.email == payload.email, User.is_active == True).first()
     if not user:
         return generic_response
+
+    # Rate limit: max 3 reset requests per user per 15 minutes.
+    window_start = datetime.now(timezone.utc) - timedelta(minutes=15)
+    recent_count = db.query(func.count(PasswordResetToken.id)).filter(
+        PasswordResetToken.user_id == user.id,
+        PasswordResetToken.created_at >= window_start,
+    ).scalar()
+    if recent_count >= 3:
+        return generic_response  # silently drop — don't reveal the limit
+
+    # Opportunistic cleanup: delete expired tokens for this user to keep the
+    # table lean. Done before creating the new token.
+    db.query(PasswordResetToken).filter(
+        PasswordResetToken.user_id == user.id,
+        PasswordResetToken.expires_at < datetime.now(timezone.utc),
+    ).delete()
 
     # Invalidate any existing unused tokens for this user
     db.query(PasswordResetToken).filter(
@@ -218,7 +236,7 @@ def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db
 
 
 @router.post("/reset-password", status_code=status.HTTP_200_OK)
-def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
+def reset_password(payload: ResetPasswordRequest, request: Request, db: Session = Depends(get_db)):
     if len(payload.new_password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
 
@@ -252,4 +270,15 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
     ).update({"is_active": False})
 
     db.commit()
+
+    # Audit log — password reset is a high-value security event
+    log_action(
+        db=db,
+        user=user,
+        action="password_reset",
+        resource_type="user",
+        resource_id=str(user.id),
+        ip_address=request.client.host if request.client else None,
+    )
+
     return {"message": "Password reset successfully. Please log in with your new password."}

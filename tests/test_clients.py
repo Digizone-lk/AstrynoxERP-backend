@@ -44,7 +44,7 @@ def test_create_client_admin(admin_client):
 
 
 def test_create_client_sales(sales_client, admin_client):
-    r = sales_client.post(f"{BASE}/", json={"name": "Sales Client"})
+    r = sales_client.post(f"{BASE}/", json={"name": "Sales Client", "email": "sales@client.com"})
     assert r.status_code == 201
 
 
@@ -59,10 +59,10 @@ def test_create_client_accountant_forbidden(accountant_client):
 
 
 def test_create_client_minimal_payload(admin_client):
-    r = admin_client.post(f"{BASE}/", json={"name": "Minimal Client"})
+    r = admin_client.post(f"{BASE}/", json={"name": "Minimal Client", "email": "minimal@client.com"})
     assert r.status_code == 201
     data = r.json()
-    assert data["email"] is None
+    assert data["email"] == "minimal@client.com"
     assert data["phone"] is None
 
 
