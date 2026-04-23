@@ -10,6 +10,7 @@ import os
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test_billflow.db")
 os.environ.setdefault("SECRET_KEY", "test-only-secret-key-do-not-use-in-production")
 os.environ.setdefault("ENVIRONMENT", "test")
+os.environ.setdefault("OPENAI_API_KEY", "test-key-not-used")
 
 import pytest
 from unittest.mock import patch, MagicMock

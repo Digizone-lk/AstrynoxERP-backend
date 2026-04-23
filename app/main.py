@@ -9,11 +9,12 @@ from app.routers import invoices
 from app.routers import dashboard
 from app.routers import reports
 from app.routers import audit
+from app.chat import chat_routers
 
 app = FastAPI(
     title="BillFlow API",
     description="Quotation, Invoicing & Billing SaaS",
-    version="1.0.0",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -36,6 +37,7 @@ app.include_router(invoices.router)
 app.include_router(dashboard.router)
 app.include_router(reports.router)
 app.include_router(audit.router)
+app.include_router(chat_routers.router)
 
 
 @app.get("/health")
