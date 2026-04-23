@@ -14,3 +14,4 @@ weasyprint==63.1
 httpx==0.28.1
 cloudinary==1.41.0
 pytest==8.3.4
+openai==2.32.0
