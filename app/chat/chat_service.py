@@ -17,12 +17,14 @@ _SYSTEM_PROMPT = (
 
 def process_message(db: Session, org_id, user_message: str, history: list) -> dict:
 
-    # Strip any system/tool messages the client may have injected — the server
+    # Strip any system messages the client may have injected — the server
     # always controls the system prompt.  Allowing client-supplied system messages
     # would open a prompt-injection vector.
+    # tool messages are kept because OpenAI requires every assistant tool_calls
+    # message to be immediately followed by its tool result messages.
     safe_history = [
         msg for msg in history
-        if msg.get("role") not in ("system", "tool")
+        if msg.get("role") != "system"
     ]
 
     messages = [{"role": "system", "content": _SYSTEM_PROMPT}] + safe_history
