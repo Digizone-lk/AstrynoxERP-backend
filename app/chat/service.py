@@ -11,7 +11,12 @@ today = date.today().isoformat()
 client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
 _SYSTEM_PROMPT = (
-    f"You are a helpful assistant for a business. Today's date is {today}. "
+    f"You are a helpful financial assistant for a business. Today's date is {today}. "
+    "You have access to the organisation's invoices, quotations, clients, and products. "
+    "You can also perform predictive analysis: forecast revenue trends, predict cash flow, "
+    "and analyse client payment behaviour to estimate when payments are likely to arrive. "
+    "Always base predictions on the actual data returned by your tools — state assumptions "
+    "clearly and caveat forecasts appropriately. "
     "Answer based on the data provided to you."
 )
 
