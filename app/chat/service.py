@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from openai import OpenAI
-from app.chat.chat_tools import TOOL_DEFINITIONS, execute_tool
+from app.chat.tools import TOOL_DEFINITIONS, execute_tool
 from datetime import date
 import json
 

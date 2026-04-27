@@ -6,11 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from sqlalchemy.orm import Session, joinedload
 from app.core.database import get_db
 from app.dependencies import get_any_authenticated, get_sales_or_admin, get_accountant_or_admin
-from app.models.invoice import Invoice, InvoiceItem, InvoiceStatus
-from app.models.user import User, UserRole
-from app.schemas.invoice import InvoiceCreate, InvoiceUpdate, InvoiceOut, InvoiceDetailOut
-from app.services.audit import log_action
-from app.services.numbering import next_invoice_number
+from app.modules.ims.models.invoice import Invoice, InvoiceItem, InvoiceStatus
+from app.modules.ims.models.user import User, UserRole
+from app.modules.ims.schemas.invoice import InvoiceCreate, InvoiceUpdate, InvoiceOut, InvoiceDetailOut
+from app.modules.ims.services.audit import log_action
+from app.modules.ims.services.numbering import next_invoice_number
 
 router = APIRouter(prefix="/api/invoices", tags=["invoices"])
 
@@ -235,8 +235,8 @@ def download_invoice_pdf(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_any_authenticated),
 ):
-    from app.services.pdf import generate_invoice_pdf
-    from app.models.organization import Organization
+    from app.modules.ims.services.pdf import generate_invoice_pdf
+    from app.modules.ims.models.organization import Organization
     invoice = (
         db.query(Invoice)
         .options(joinedload(Invoice.client), joinedload(Invoice.items))
@@ -262,9 +262,9 @@ def email_invoice_to_client(
     current_user: User = Depends(get_sales_or_admin),
 ):
     """Generate the invoice PDF and send it to the client's email address."""
-    from app.services.pdf import generate_invoice_pdf
-    from app.services.email import send_document_email
-    from app.models.organization import Organization
+    from app.modules.ims.services.pdf import generate_invoice_pdf
+    from app.modules.ims.services.email import send_document_email
+    from app.modules.ims.models.organization import Organization
 
     invoice = (
         db.query(Invoice)

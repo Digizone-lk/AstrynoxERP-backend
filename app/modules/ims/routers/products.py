@@ -4,13 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session, joinedload
 from app.core.database import get_db
 from app.dependencies import get_any_authenticated, get_sales_or_admin
-from app.models.product import Product
-from app.models.client import Client
-from app.models.client_product import ClientProduct
-from app.models.user import User
-from app.schemas.product import ProductCreate, ProductUpdate, ProductOut
-from app.schemas.client import ClientOut
-from app.services.audit import log_action
+from app.modules.ims.models.product import Product
+from app.modules.ims.models.client import Client
+from app.modules.ims.models.client_product import ClientProduct
+from app.modules.ims.models.user import User
+from app.modules.ims.schemas.product import ProductCreate, ProductUpdate, ProductOut
+from app.modules.ims.schemas.client import ClientOut
+from app.modules.ims.services.audit import log_action
 
 router = APIRouter(prefix="/api/products", tags=["products"])
 

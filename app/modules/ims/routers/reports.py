@@ -7,11 +7,11 @@ from typing import Optional
 
 from app.core.database import get_db
 from app.dependencies import get_accountant_or_admin
-from app.models.invoice import Invoice, InvoiceStatus
-from app.models.quotation import Quotation, QuotationStatus
-from app.models.client import Client
-from app.models.user import User
-from app.schemas.reports import (
+from app.modules.ims.models.invoice import Invoice, InvoiceStatus
+from app.modules.ims.models.quotation import Quotation, QuotationStatus
+from app.modules.ims.models.client import Client
+from app.modules.ims.models.user import User
+from app.modules.ims.schemas.reports import (
     ReportSummary,
     RevenueByMonth,
     InvoiceStatusRow,

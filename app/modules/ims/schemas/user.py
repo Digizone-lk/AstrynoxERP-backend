@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, EmailStr, field_validator
 import re
-from app.models.user import UserRole, DEFAULT_NOTIFICATION_PREFS
+from app.modules.ims.models.user import UserRole, DEFAULT_NOTIFICATION_PREFS
 
 ALL_MODULES = ["dashboard", "clients", "products", "quotations", "invoices", "reports"]
 

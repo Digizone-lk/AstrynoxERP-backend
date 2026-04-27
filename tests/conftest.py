@@ -21,15 +21,15 @@ from sqlalchemy.orm import sessionmaker
 from app.core.database import Base, get_db
 
 # Import all models so Base.metadata is fully populated
-import app.models.organization  # noqa
-import app.models.user          # noqa
-import app.models.client        # noqa
-import app.models.product       # noqa
-import app.models.client_product  # noqa
-import app.models.quotation     # noqa
-import app.models.invoice       # noqa
-import app.models.audit_log     # noqa
-import app.models.user_session  # noqa
+import app.modules.ims.models.organization  # noqa
+import app.modules.ims.models.user          # noqa
+import app.modules.ims.models.client        # noqa
+import app.modules.ims.models.product       # noqa
+import app.modules.ims.models.client_product  # noqa
+import app.modules.ims.models.quotation     # noqa
+import app.modules.ims.models.invoice       # noqa
+import app.modules.ims.models.audit_log     # noqa
+import app.modules.ims.models.user_session  # noqa
 
 from app.main import app  # import after env vars are set
 

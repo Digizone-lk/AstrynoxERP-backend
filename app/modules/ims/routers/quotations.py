@@ -6,11 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session, joinedload
 from app.core.database import get_db
 from app.dependencies import get_any_authenticated, get_sales_or_admin, get_accountant_or_admin
-from app.models.quotation import Quotation, QuotationItem, QuotationStatus
-from app.models.user import User, UserRole
-from app.schemas.quotation import QuotationCreate, QuotationUpdate, QuotationOut, QuotationDetailOut
-from app.services.audit import log_action
-from app.services.numbering import next_quote_number
+from app.modules.ims.models.quotation import Quotation, QuotationItem, QuotationStatus
+from app.modules.ims.models.user import User, UserRole
+from app.modules.ims.schemas.quotation import QuotationCreate, QuotationUpdate, QuotationOut, QuotationDetailOut
+from app.modules.ims.services.audit import log_action
+from app.modules.ims.services.numbering import next_quote_number
 
 router = APIRouter(prefix="/api/quotations", tags=["quotations"])
 
@@ -232,9 +232,9 @@ def email_quotation_to_client(
     current_user: User = Depends(get_sales_or_admin),
 ):
     """Generate the quotation PDF and send it to the client's email address."""
-    from app.services.pdf import generate_quotation_pdf
-    from app.services.email import send_document_email
-    from app.models.organization import Organization
+    from app.modules.ims.services.pdf import generate_quotation_pdf
+    from app.modules.ims.services.email import send_document_email
+    from app.modules.ims.models.organization import Organization
 
     quotation = (
         db.query(Quotation)
@@ -284,8 +284,8 @@ def convert_to_invoice(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_sales_or_admin),
 ):
-    from app.models.invoice import Invoice, InvoiceItem
-    from app.services.numbering import next_invoice_number
+    from app.modules.ims.models.invoice import Invoice, InvoiceItem
+    from app.modules.ims.services.numbering import next_invoice_number
 
     quotation = (
         db.query(Quotation)

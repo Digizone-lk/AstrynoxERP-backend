@@ -4,7 +4,7 @@ from fastapi import Depends, HTTPException, status, Cookie, Header
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import decode_token
-from app.models.user import User, UserRole
+from app.modules.ims.models.user import User, UserRole
 
 
 def get_current_user(

@@ -11,11 +11,11 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import verify_password, hash_password, decode_token
 from app.dependencies import get_any_authenticated
-from app.models.audit_log import AuditLog
-from app.models.organization import Organization
-from app.models.user import User, DEFAULT_NOTIFICATION_PREFS
-from app.models.user_session import UserSession
-from app.schemas.user import (
+from app.modules.ims.models.audit_log import AuditLog
+from app.modules.ims.models.organization import Organization
+from app.modules.ims.models.user import User, DEFAULT_NOTIFICATION_PREFS
+from app.modules.ims.models.user_session import UserSession
+from app.modules.ims.schemas.user import (
     UserProfileOut,
     ProfileUpdate,
     PasswordChange,
@@ -23,7 +23,7 @@ from app.schemas.user import (
     SessionOut,
     UserActivityOut,
 )
-from app.services.audit import log_action
+from app.modules.ims.services.audit import log_action
 
 router = APIRouter(prefix="/api/users/me", tags=["profile"])
 

@@ -4,12 +4,12 @@ from sqlalchemy import func, extract
 from datetime import datetime, timezone
 from app.core.database import get_db
 from app.dependencies import get_any_authenticated
-from app.models.invoice import Invoice, InvoiceStatus
-from app.models.quotation import Quotation, QuotationStatus
-from app.models.client import Client
-from app.models.product import Product
-from app.models.user import User
-from app.schemas.dashboard import DashboardStats, MonthlyRevenue
+from app.modules.ims.models.invoice import Invoice, InvoiceStatus
+from app.modules.ims.models.quotation import Quotation, QuotationStatus
+from app.modules.ims.models.client import Client
+from app.modules.ims.models.product import Product
+from app.modules.ims.models.user import User
+from app.modules.ims.schemas.dashboard import DashboardStats, MonthlyRevenue
 from decimal import Decimal
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])

@@ -2,10 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.dependencies import get_any_authenticated, get_super_admin
-from app.models.organization import Organization
-from app.models.user import User
-from app.schemas.organization import OrgOut, OrgUpdate
-from app.services.audit import log_action
+from app.modules.ims.models.organization import Organization
+from app.modules.ims.models.user import User
+from app.modules.ims.schemas.organization import OrgOut, OrgUpdate
+from app.modules.ims.services.audit import log_action
 
 router = APIRouter(prefix="/api/org", tags=["organization"])
 

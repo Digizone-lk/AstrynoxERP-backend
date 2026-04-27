@@ -3,9 +3,9 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.dependencies import get_accountant_or_admin
-from app.models.audit_log import AuditLog
-from app.models.user import User
-from app.schemas.audit_log import AuditLogOut
+from app.modules.ims.models.audit_log import AuditLog
+from app.modules.ims.models.user import User
+from app.modules.ims.schemas.audit_log import AuditLogOut
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 

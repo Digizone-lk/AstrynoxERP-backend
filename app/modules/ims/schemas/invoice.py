@@ -3,8 +3,8 @@ from datetime import datetime, date
 from typing import Optional, List
 from decimal import Decimal
 from pydantic import BaseModel
-from app.models.invoice import InvoiceStatus
-from app.schemas.client import ClientOut
+from app.modules.ims.models.invoice import InvoiceStatus
+from app.modules.ims.schemas.client import ClientOut
 
 
 class InvoiceItemCreate(BaseModel):

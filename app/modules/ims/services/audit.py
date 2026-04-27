@@ -1,7 +1,7 @@
 from typing import Optional, Any
 from sqlalchemy.orm import Session
-from app.models.audit_log import AuditLog
-from app.models.user import User
+from app.modules.ims.models.audit_log import AuditLog
+from app.modules.ims.models.user import User
 
 
 def log_action(

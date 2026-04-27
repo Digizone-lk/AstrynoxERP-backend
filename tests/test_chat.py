@@ -69,7 +69,7 @@ def test_chat_requires_auth(anon_client):
 
 # ─── Simple text reply (no tool calls) ───────────────────────────────────────
 
-@patch("app.chat.chat_service.client")
+@patch("app.chat.service.client")
 def test_chat_simple_question(mock_openai, admin_client, clean_db):
     mock_openai.chat.completions.create.return_value = _make_text_response("Hello! How can I help?")
 
@@ -83,7 +83,7 @@ def test_chat_simple_question(mock_openai, admin_client, clean_db):
 
 # ─── get_invoices tool ────────────────────────────────────────────────────────
 
-@patch("app.chat.chat_service.client")
+@patch("app.chat.service.client")
 def test_chat_get_invoices_by_status(mock_openai, admin_client, make_invoice, clean_db):
     # Create an invoice so the tool has data to return
     make_invoice()
@@ -105,7 +105,7 @@ def test_chat_get_invoices_by_status(mock_openai, admin_client, make_invoice, cl
     assert "tool" in roles
 
 
-@patch("app.chat.chat_service.client")
+@patch("app.chat.service.client")
 def test_chat_get_invoices_by_client_name(mock_openai, admin_client, make_invoice, clean_db):
     make_invoice()
 
@@ -124,7 +124,7 @@ def test_chat_get_invoices_by_client_name(mock_openai, admin_client, make_invoic
 
 # ─── get_invoice_summary tool ─────────────────────────────────────────────────
 
-@patch("app.chat.chat_service.client")
+@patch("app.chat.service.client")
 def test_chat_get_invoice_summary(mock_openai, admin_client, make_invoice, clean_db):
     make_invoice()
 
@@ -152,11 +152,11 @@ def test_chat_get_invoice_summary(mock_openai, admin_client, make_invoice, clean
 
 # ─── get_outstanding_amount tool (planned) ────────────────────────────────────
 
-@patch("app.chat.chat_service.client")
+@patch("app.chat.service.client")
 def test_chat_get_outstanding_amount(mock_openai, admin_client, clean_db):
     """When the model calls get_outstanding_amount the executor result is forwarded.
 
-    Note: the tool is not yet implemented in chat_tools.py. When implemented it
+    Note: the tool is not yet implemented in chat/tools.py. When implemented it
     must be added to execute_tool(); until then execute_tool() returns an error
     dict and the LLM answers from that. This test documents the expected contract.
     """
@@ -178,7 +178,7 @@ def test_chat_get_outstanding_amount(mock_openai, admin_client, clean_db):
 
 # ─── History preservation ─────────────────────────────────────────────────────
 
-@patch("app.chat.chat_service.client")
+@patch("app.chat.service.client")
 def test_chat_history_preserved(mock_openai, admin_client, clean_db):
     mock_openai.chat.completions.create.return_value = _make_text_response("Turn 1 reply")
     r1 = admin_client.post(BASE, json=_chat_payload("First message"))
@@ -202,7 +202,7 @@ def test_chat_history_preserved(mock_openai, admin_client, clean_db):
     assert "Turn 2 reply" in contents
 
 
-@patch("app.chat.chat_service.client")
+@patch("app.chat.service.client")
 def test_chat_system_message_not_duplicated(mock_openai, admin_client, clean_db):
     """Sending existing history with a client-supplied system message must not
     result in two system messages — the service always strips client system/tool
@@ -228,7 +228,7 @@ def test_chat_system_message_not_duplicated(mock_openai, admin_client, clean_db)
 
 # ─── Multi-tool call ──────────────────────────────────────────────────────────
 
-@patch("app.chat.chat_service.client")
+@patch("app.chat.service.client")
 def test_chat_multi_tool_call(mock_openai, admin_client, make_invoice, clean_db):
     """A single LLM turn can issue multiple tool calls; all must be executed."""
     make_invoice()
@@ -263,7 +263,7 @@ def test_chat_multi_tool_call(mock_openai, admin_client, make_invoice, clean_db)
 
 # ─── Invalid date handling ────────────────────────────────────────────────────
 
-@patch("app.chat.chat_service.client")
+@patch("app.chat.service.client")
 def test_chat_invalid_date_returns_error(mock_openai, admin_client, clean_db):
     """Executor must return an error dict for bad dates — no 500."""
     tool_call = _make_tool_call(
@@ -286,7 +286,7 @@ def test_chat_invalid_date_returns_error(mock_openai, admin_client, clean_db):
     assert "error" in result
 
 
-@patch("app.chat.chat_service.client")
+@patch("app.chat.service.client")
 def test_chat_get_invoices_invalid_date_returns_error(mock_openai, admin_client, clean_db):
     tool_call = _make_tool_call(
         "call_008", "get_invoices",
@@ -306,7 +306,7 @@ def test_chat_get_invoices_invalid_date_returns_error(mock_openai, admin_client,
 
 # ─── Org isolation ────────────────────────────────────────────────────────────
 
-@patch("app.chat.chat_service.client")
+@patch("app.chat.service.client")
 def test_chat_org_isolation(mock_openai, admin_client, second_org_admin, clean_db):
     """Data returned by tool executors must be scoped to the authenticated org."""
     # Create an invoice under the first org via admin_client

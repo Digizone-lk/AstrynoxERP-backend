@@ -1,5 +1,5 @@
 """
-chat_tools.py
+tools.py
 
 Two responsibilities, kept in one file because they are tightly coupled:
   1. TOOL_DEFINITIONS  — the list of dicts we send to OpenAI so it knows what
@@ -19,9 +19,9 @@ from decimal import Decimal
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from app.models.client import Client
-from app.models.invoice import Invoice, InvoiceStatus
-from app.models.organization import Organization
+from app.modules.ims.models.client import Client
+from app.modules.ims.models.invoice import Invoice, InvoiceStatus
+from app.modules.ims.models.organization import Organization
 
 
 #Default Constant Values

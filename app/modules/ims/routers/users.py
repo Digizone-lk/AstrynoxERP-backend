@@ -5,10 +5,10 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import hash_password
 from app.dependencies import get_current_user, get_super_admin
-from app.models.audit_log import AuditLog
-from app.models.user import User
-from app.schemas.user import UserCreate, UserUpdate, UserOut, AdminPasswordReset, UserActivityOut, UserModulesUpdate
-from app.services.audit import log_action
+from app.modules.ims.models.audit_log import AuditLog
+from app.modules.ims.models.user import User
+from app.modules.ims.schemas.user import UserCreate, UserUpdate, UserOut, AdminPasswordReset, UserActivityOut, UserModulesUpdate
+from app.modules.ims.services.audit import log_action
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 

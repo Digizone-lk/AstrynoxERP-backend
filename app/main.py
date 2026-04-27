@@ -1,15 +1,15 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.routers import quotations, quotations_pdf
-from app.routers import clients
-from app.routers import products
-from app.routers import auth, users, profile, organization
-from app.routers import invoices
-from app.routers import dashboard
-from app.routers import reports
-from app.routers import audit
-from app.chat import chat_routers
+from app.modules.ims.routers import quotations_pdf
+from app.modules.ims.routers import clients, organization, profile, quotations
+from app.modules.ims.routers import products
+from app.modules.ims.routers import users
+from app.modules.ims.routers import invoices
+from app.modules.ims.routers import dashboard
+from app.modules.ims.routers import reports
+from app.modules.ims.routers import audit, auth
+from app.chat import routers
 
 app = FastAPI(
     title="BillFlow API",
@@ -37,7 +37,7 @@ app.include_router(invoices.router)
 app.include_router(dashboard.router)
 app.include_router(reports.router)
 app.include_router(audit.router)
-app.include_router(chat_routers.router)
+app.include_router(routers.router)
 
 
 @app.get("/health")

@@ -3,8 +3,8 @@ from datetime import datetime, date
 from typing import Optional, List
 from decimal import Decimal
 from pydantic import BaseModel
-from app.models.quotation import QuotationStatus
-from app.schemas.client import ClientOut
+from app.modules.ims.models.quotation import QuotationStatus
+from app.modules.ims.schemas.client import ClientOut
 
 
 class QuotationItemCreate(BaseModel):

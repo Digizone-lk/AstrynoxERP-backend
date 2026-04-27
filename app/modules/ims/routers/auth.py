@@ -10,15 +10,15 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import verify_password, hash_password, create_access_token, create_refresh_token, decode_token
 from app.core.config import settings
-from app.models.organization import Organization
-from app.models.user import User, UserRole
-from app.models.user_session import UserSession
-from app.models.password_reset_token import PasswordResetToken
-from app.schemas.auth import LoginRequest, TokenResponse, RegisterOrgRequest, ForgotPasswordRequest, ResetPasswordRequest
-from app.schemas.user import UserOut
+from app.modules.ims.models.organization import Organization
+from app.modules.ims.models.user import User, UserRole
+from app.modules.ims.models.user_session import UserSession
+from app.modules.ims.models.password_reset_token import PasswordResetToken
+from app.modules.ims.schemas.auth import LoginRequest, TokenResponse, RegisterOrgRequest, ForgotPasswordRequest, ResetPasswordRequest
+from app.modules.ims.schemas.user import UserOut
 from app.dependencies import get_current_user
-from app.services.email import send_password_reset_email
-from app.services.audit import log_action
+from app.modules.ims.services.email import send_password_reset_email
+from app.modules.ims.services.audit import log_action
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 

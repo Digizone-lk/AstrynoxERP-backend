@@ -10,9 +10,9 @@ import html as html_lib
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
-    from app.models.invoice import Invoice
-    from app.models.quotation import Quotation
-    from app.models.organization import Organization
+    from app.modules.ims.models.invoice import Invoice
+    from app.modules.ims.models.quotation import Quotation
+    from app.modules.ims.models.organization import Organization
 
 
 def _esc(value) -> str:

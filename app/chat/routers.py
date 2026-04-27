@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
-from app.models.user import User
-from app.chat.chat_service import process_message
-from app.chat.chat_schemas import ChatRequest, ChatResponse
+from app.modules.ims.models.user import User
+from app.chat.service import process_message
+from app.chat.schemas import ChatRequest, ChatResponse
 from app.dependencies import get_sales_or_admin
 
 router = APIRouter(prefix="/api/chat", tags=["chatbot"])

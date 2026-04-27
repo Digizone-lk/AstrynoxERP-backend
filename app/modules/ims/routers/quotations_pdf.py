@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session, joinedload
 from app.core.database import get_db
 from app.dependencies import get_any_authenticated
-from app.models.quotation import Quotation
-from app.models.user import User
-from app.services.pdf import generate_quotation_pdf
+from app.modules.ims.models.quotation import Quotation
+from app.modules.ims.models.user import User
+from app.modules.ims.services.pdf import generate_quotation_pdf
 
 router = APIRouter(prefix="/api/quotations", tags=["quotations"])
 
@@ -17,7 +17,7 @@ def download_quotation_pdf(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_any_authenticated),
 ):
-    from app.models.organization import Organization
+    from app.modules.ims.models.organization import Organization
     quotation = (
         db.query(Quotation)
         .options(joinedload(Quotation.client), joinedload(Quotation.items))
