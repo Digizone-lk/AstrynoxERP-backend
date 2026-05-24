@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
     SMTP_FROM: str = ""
+    SMTP_TIMEOUT_SECONDS: int = 10
     FRONTEND_URL: str = "http://localhost:3000"
     PRODUCT_ADMIN_EMAIL: str = "brayanjayawardhana@gmail.com"
     PRODUCT_ADMIN_PASSWORD: str = "Password123"

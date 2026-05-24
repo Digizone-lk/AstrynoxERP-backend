@@ -18,10 +18,10 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
-def _send(to: str, subject: str, html: str, text: str) -> None:
+def _send(to: str, subject: str, html: str, text: str) -> bool:
     if not settings.SMTP_HOST:
         logger.info("[EMAIL — no SMTP configured] To: %s | Subject: %s\n%s", to, subject, text)
-        return
+        return settings.ENVIRONMENT != "production"
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -32,15 +32,17 @@ def _send(to: str, subject: str, html: str, text: str) -> None:
 
     try:
         context = ssl.create_default_context()
-        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
+        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=settings.SMTP_TIMEOUT_SECONDS) as server:
             server.ehlo()
             server.starttls(context=context)
             server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
             server.sendmail(msg["From"], to, msg.as_string())
+        return True
     except Exception:
         # Log the error for ops visibility but never surface SMTP internals
         # (credentials, host) to the caller.
         logger.exception("SMTP send failed to %s", to)
+        return False
 
 
 def send_document_email(
@@ -85,7 +87,7 @@ def send_document_email(
         logger.exception("SMTP send failed to %s", to)
 
 
-def send_password_reset_email(to: str, full_name: str, reset_link: str) -> None:
+def send_password_reset_email(to: str, full_name: str, reset_link: str) -> bool:
     subject = "Reset your BillFlow password"
 
     # Escape user-supplied values before embedding in HTML to prevent injection.
@@ -124,10 +126,10 @@ def send_password_reset_email(to: str, full_name: str, reset_link: str) -> None:
     </div>
     """
 
-    _send(to, subject, html, text)
+    return _send(to, subject, html, text)
 
 
-def send_organization_invite_email(to: str, username: str, temporary_password: str, invite_link: str) -> None:
+def send_organization_invite_email(to: str, username: str, temporary_password: str, invite_link: str) -> bool:
     subject = "Your BillFlow organization invite"
     safe_username = html_lib.escape(username)
     safe_password = html_lib.escape(temporary_password)
@@ -164,10 +166,10 @@ def send_organization_invite_email(to: str, username: str, temporary_password: s
     </div>
     """
 
-    _send(to, subject, html, text)
+    return _send(to, subject, html, text)
 
 
-def send_onboarding_otp_email(to: str, otp: str) -> None:
+def send_onboarding_otp_email(to: str, otp: str) -> bool:
     subject = "Your BillFlow verification code"
     safe_otp = html_lib.escape(otp)
 
@@ -188,4 +190,4 @@ def send_onboarding_otp_email(to: str, otp: str) -> None:
     </div>
     """
 
-    _send(to, subject, html, text)
+    return _send(to, subject, html, text)
