@@ -268,7 +268,12 @@ def send_onboarding_otp(
     )
     db.add(record)
     db.commit()
-    send_onboarding_otp_email(user.email, otp)
+    sent = send_onboarding_otp_email(user.email, otp)
+    if not sent:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not send OTP email. Please contact support or try again shortly.",
+        )
     return {"message": "OTP sent to registered email."}
 
 
