@@ -25,12 +25,20 @@ class UserOut(BaseModel):
     id: UUID
     org_id: UUID
     email: str
+    username: Optional[str] = None
     full_name: str
     role: UserRole
     is_active: bool
     created_at: datetime
     org_currency: str = "USD"
     allowed_modules: Optional[List[str]] = None
+    must_change_password: bool = False
+    email_verified: bool = False
+    onboarding_status: str = "completed"
+    subscription_status: str = "trial"
+    plan: Optional[str] = None
+    trial_end_date: Optional[datetime] = None
+    admin_email: Optional[str] = None
 
     class Config:
         from_attributes = True

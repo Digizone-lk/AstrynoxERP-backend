@@ -14,10 +14,12 @@ from app.modules.ims.models.organization import Organization
 from app.modules.ims.models.user import User, UserRole
 from app.modules.ims.models.user_session import UserSession
 from app.modules.ims.models.password_reset_token import PasswordResetToken
+from app.modules.ims.models.onboarding_otp import OnboardingOtp
 from app.modules.ims.schemas.auth import LoginRequest, TokenResponse, RegisterOrgRequest, ForgotPasswordRequest, ResetPasswordRequest
+from app.modules.ims.schemas.organization import OnboardingPasswordChange, OnboardingOtpVerify
 from app.modules.ims.schemas.user import UserOut
-from app.dependencies import get_current_user
-from app.modules.ims.services.email import send_password_reset_email
+from app.dependencies import get_current_user, enforce_organization_access
+from app.modules.ims.services.email import send_password_reset_email, send_onboarding_otp_email
 from app.modules.ims.services.audit import log_action
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -28,6 +30,7 @@ def _hash_token(token: str) -> str:
 
 
 def _set_tokens(response: Response, user: User, db: Session, request: Request) -> TokenResponse:
+    org = db.query(Organization).filter(Organization.id == user.org_id).first()
     data = {"sub": str(user.id), "org_id": str(user.org_id), "role": user.role.value}
     access_token = create_access_token(data)
     refresh_token = create_refresh_token(data)
@@ -64,7 +67,16 @@ def _set_tokens(response: Response, user: User, db: Session, request: Request) -
         samesite="lax",
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
     )
-    return TokenResponse(access_token=access_token, refresh_token=refresh_token)
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        must_change_password=user.must_change_password,
+        email_verified=user.email_verified,
+        onboarding_status=org.onboarding_status if org else "completed",
+        subscription_status=org.subscription_status if org else "trial",
+        plan=org.plan if org else None,
+        admin_email=settings.PRODUCT_ADMIN_EMAIL,
+    )
 
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
@@ -80,7 +92,16 @@ def register_organization(
     if db.query(Organization).filter(Organization.slug == payload.org_slug).first():
         raise HTTPException(status_code=409, detail="Organization slug already taken")
 
-    org = Organization(name=payload.org_name, slug=payload.org_slug, currency=payload.currency)
+    now = datetime.now(timezone.utc)
+    org = Organization(
+        name=payload.org_name,
+        slug=payload.org_slug,
+        currency=payload.currency,
+        subscription_status="trial",
+        trial_start_date=now,
+        trial_end_date=now + timedelta(days=14),
+        onboarding_status="completed",
+    )
     db.add(org)
     db.flush()
 
@@ -93,6 +114,7 @@ def register_organization(
         full_name=payload.full_name,
         hashed_password=hash_password(payload.password),
         role=UserRole.SUPER_ADMIN,
+        email_verified=True,
     )
     db.add(user)
     db.commit()
@@ -109,13 +131,25 @@ def login(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    user = db.query(User).filter(User.email == payload.email, User.is_active == True).first()
+    login_id = payload.email.strip()
+    user = db.query(User).filter(
+        ((User.email == login_id) | (User.username == login_id)),
+        User.is_active == True,
+    ).first()
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     org = db.query(Organization).filter(Organization.id == user.org_id).first()
     if not org or not org.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Organization is inactive")
+    if org.subscription_status == "trial" and org.trial_end_date:
+        now = datetime.now(timezone.utc)
+        trial_end = org.trial_end_date
+        if trial_end.tzinfo is None:
+            now = now.replace(tzinfo=None)
+        if trial_end < now:
+            org.subscription_status = "trial_expired"
+            db.commit()
 
     return _set_tokens(response, user, db, request)
 
@@ -156,6 +190,8 @@ def refresh(
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
+    enforce_organization_access(db, user, request)
+
     # Revoke old session before issuing new one
     session.is_active = False
     db.commit()
@@ -188,7 +224,80 @@ def me(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     org = db.query(Organization).filter(Organization.id == user.org_id).first()
     user_dict = UserOut.model_validate(user).model_dump()
     user_dict["org_currency"] = org.currency if org else "USD"
+    user_dict["onboarding_status"] = org.onboarding_status if org else "completed"
+    user_dict["subscription_status"] = org.subscription_status if org else "trial"
+    user_dict["plan"] = org.plan if org else None
+    user_dict["trial_end_date"] = org.trial_end_date if org else None
+    user_dict["admin_email"] = settings.PRODUCT_ADMIN_EMAIL
     return user_dict
+
+
+@router.post("/onboarding/change-password", status_code=status.HTTP_200_OK)
+def onboarding_change_password(
+    payload: OnboardingPasswordChange,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if len(payload.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+    user.hashed_password = hash_password(payload.new_password)
+    user.must_change_password = False
+    db.query(UserSession).filter(UserSession.user_id == user.id, UserSession.is_active == True).update({"is_active": False})
+    db.commit()
+    log_action(db, user, "onboarding_password_changed", "user", str(user.id), ip_address=request.client.host if request.client else None)
+    return {"message": "Password changed successfully. Please log in again to verify your email."}
+
+
+@router.post("/onboarding/send-otp", status_code=status.HTTP_200_OK)
+def send_onboarding_otp(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if user.must_change_password:
+        raise HTTPException(status_code=400, detail="Password must be changed before OTP verification.")
+    if user.email_verified:
+        return {"message": "Email already verified."}
+
+    db.query(OnboardingOtp).filter(OnboardingOtp.user_id == user.id, OnboardingOtp.used == False).update({"used": True})
+    otp = f"{secrets.randbelow(1000000):06d}"
+    record = OnboardingOtp(
+        user_id=user.id,
+        otp_hash=_hash_token(otp),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+    )
+    db.add(record)
+    db.commit()
+    send_onboarding_otp_email(user.email, otp)
+    return {"message": "OTP sent to registered email."}
+
+
+@router.post("/onboarding/verify-otp", status_code=status.HTTP_200_OK)
+def verify_onboarding_otp(
+    payload: OnboardingOtpVerify,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    record = db.query(OnboardingOtp).filter(
+        OnboardingOtp.user_id == user.id,
+        OnboardingOtp.otp_hash == _hash_token(payload.otp),
+        OnboardingOtp.used == False,
+    ).first()
+    if not record:
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP.")
+    now = datetime.now(timezone.utc)
+    expires = record.expires_at
+    if expires.tzinfo is None:
+        now = now.replace(tzinfo=None)
+    if expires < now:
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP.")
+
+    record.used = True
+    user.email_verified = True
+    db.commit()
+    log_action(db, user, "onboarding_otp_verified", "user", str(user.id), ip_address=request.client.host if request.client else None)
+    return {"message": "Email verified successfully."}
 
 
 @router.post("/forgot-password", status_code=status.HTTP_200_OK)

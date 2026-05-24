@@ -29,10 +29,13 @@ class User(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     email = Column(String(255), nullable=False, index=True)
+    username = Column(String(100), nullable=True, unique=True, index=True)
     full_name = Column(String(255), nullable=False)
     hashed_password = Column(String(255), nullable=False)
     role = Column(Enum(UserRole), nullable=False, default=UserRole.VIEWER)
     is_active = Column(Boolean, default=True)
+    must_change_password = Column(Boolean, default=False, nullable=False)
+    email_verified = Column(Boolean, default=False, nullable=False)
 
     # Profile fields
     phone = Column(String(50), nullable=True)
@@ -49,6 +52,7 @@ class User(Base):
     organization = relationship("Organization", back_populates="users")
     audit_logs = relationship("AuditLog", back_populates="user")
     sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
+    onboarding_otps = relationship("OnboardingOtp", back_populates="user", cascade="all, delete-orphan")
 
     __table_args__ = (
         UniqueConstraint("org_id", "email", name="uq_user_org_email"),

@@ -125,3 +125,67 @@ def send_password_reset_email(to: str, full_name: str, reset_link: str) -> None:
     """
 
     _send(to, subject, html, text)
+
+
+def send_organization_invite_email(to: str, username: str, temporary_password: str, invite_link: str) -> None:
+    subject = "Your BillFlow organization invite"
+    safe_username = html_lib.escape(username)
+    safe_password = html_lib.escape(temporary_password)
+    safe_link = html_lib.escape(invite_link)
+
+    text = (
+        "You have been invited to set up your BillFlow organization.\n\n"
+        f"Login username: {username}\n"
+        f"One-time password: {temporary_password}\n\n"
+        "Open this invitation link within 24 hours. The link can be used once:\n"
+        f"{invite_link}\n\n"
+        "After login, you must change your password and verify your email with an OTP."
+    )
+
+    html = f"""
+    <div style="font-family:sans-serif;max-width:520px;margin:auto;padding:32px;color:#1e293b">
+      <h2 style="color:#2563eb;margin-bottom:4px">BillFlow</h2>
+      <p style="color:#64748b;margin-top:0">Organization setup invite</p>
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0">
+      <p>You have been invited to set up your BillFlow organization.</p>
+      <p><strong>Login username:</strong> {safe_username}</p>
+      <p><strong>One-time password:</strong> {safe_password}</p>
+      <p>This invite expires in <strong>24 hours</strong> and can be used once.</p>
+      <a href="{safe_link}"
+         style="display:inline-block;margin:24px 0;padding:12px 24px;
+                background:#2563eb;color:#fff;border-radius:8px;
+                text-decoration:none;font-weight:600">
+        Open invite
+      </a>
+      <p style="color:#64748b;font-size:13px">
+        If the button doesn't work, copy and paste this link into your browser:<br>
+        <a href="{safe_link}" style="color:#2563eb">{safe_link}</a>
+      </p>
+    </div>
+    """
+
+    _send(to, subject, html, text)
+
+
+def send_onboarding_otp_email(to: str, otp: str) -> None:
+    subject = "Your BillFlow verification code"
+    safe_otp = html_lib.escape(otp)
+
+    text = (
+        "Use this OTP to verify your BillFlow organization email.\n\n"
+        f"OTP: {otp}\n\n"
+        "This code expires in 10 minutes."
+    )
+
+    html = f"""
+    <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px;color:#1e293b">
+      <h2 style="color:#2563eb;margin-bottom:4px">BillFlow</h2>
+      <p style="color:#64748b;margin-top:0">Email verification</p>
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0">
+      <p>Use this OTP to verify your organization email:</p>
+      <p style="font-size:28px;font-weight:700;letter-spacing:4px">{safe_otp}</p>
+      <p style="color:#64748b;font-size:13px">This code expires in 10 minutes.</p>
+    </div>
+    """
+
+    _send(to, subject, html, text)

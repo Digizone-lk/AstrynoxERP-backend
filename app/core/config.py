@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     SMTP_FROM: str = ""
     FRONTEND_URL: str = "http://localhost:3000"
+    PRODUCT_ADMIN_EMAIL: str = "brayanjayawardhana@gmail.com"
+    PRODUCT_ADMIN_PASSWORD: str = "Password123"
 
     def get_allowed_origins(self) -> List[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]

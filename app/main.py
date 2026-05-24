@@ -9,6 +9,7 @@ from app.modules.ims.routers import invoices
 from app.modules.ims.routers import dashboard
 from app.modules.ims.routers import reports
 from app.modules.ims.routers import audit, auth
+from app.modules.ims.routers import product_admin
 from app.chat import routers
 
 app = FastAPI(
@@ -26,6 +27,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(product_admin.router)
 app.include_router(profile.router)   # must be before users.router — /me/* routes take priority over /{user_id}/*
 app.include_router(users.router)
 app.include_router(organization.router)

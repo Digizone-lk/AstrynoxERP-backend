@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import Column, String, Boolean, DateTime, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -14,6 +14,13 @@ class Organization(Base):
     slug = Column(String(100), unique=True, nullable=False, index=True)
     currency = Column(String(10), default="USD")
     is_active = Column(Boolean, default=True)
+    subscription_status = Column(String(20), nullable=False, default="trial")
+    plan = Column(String(20), nullable=True)
+    trial_start_date = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    trial_end_date = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc) + timedelta(days=14))
+    paid_activated_at = Column(DateTime(timezone=True), nullable=True)
+    paid_activated_by = Column(String(255), nullable=True)
+    onboarding_status = Column(String(30), nullable=False, default="completed")
     # Branding — shown on PDF documents
     address = Column(Text, nullable=True)
     phone = Column(String(50), nullable=True)
@@ -31,3 +38,4 @@ class Organization(Base):
     invoices = relationship("Invoice", back_populates="organization", cascade="all, delete-orphan")
     audit_logs = relationship("AuditLog", back_populates="organization", cascade="all, delete-orphan")
     client_products = relationship("ClientProduct", back_populates="organization", cascade="all, delete-orphan")
+    invites = relationship("OrganizationInvite", back_populates="organization", cascade="all, delete-orphan")

@@ -1,7 +1,7 @@
 from uuid import UUID
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, EmailStr, field_validator
 
 
 SUPPORTED_CURRENCIES = {
@@ -25,6 +25,11 @@ class OrgOut(BaseModel):
     website: Optional[str] = None
     logo_url: Optional[str] = None
     pdf_template: str = "classic"
+    subscription_status: str = "trial"
+    plan: Optional[str] = None
+    trial_start_date: Optional[datetime] = None
+    trial_end_date: Optional[datetime] = None
+    onboarding_status: str = "completed"
 
     class Config:
         from_attributes = True
@@ -60,3 +65,69 @@ class OrgUpdate(BaseModel):
         if v is not None and v not in PDF_TEMPLATES:
             raise ValueError(f"Invalid template. Choose from: {sorted(PDF_TEMPLATES)}")
         return v
+
+
+class ProductAdminInviteCreate(BaseModel):
+    username: str
+    email: EmailStr
+
+    @field_validator("username")
+    @classmethod
+    def username_valid(cls, v: str) -> str:
+        value = v.strip().lower()
+        if not value:
+            raise ValueError("Username cannot be blank")
+        if not value.replace("-", "").replace("_", "").isalnum():
+            raise ValueError("Username can only contain letters, numbers, hyphens, and underscores")
+        return value
+
+
+class ProductAdminInviteOut(BaseModel):
+    id: UUID
+    org_id: UUID
+    user_id: UUID
+    email: str
+    username: str
+    expires_at: datetime
+    opened_at: Optional[datetime] = None
+    used_at: Optional[datetime] = None
+    invalidated: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ProductAdminOrgOut(OrgOut):
+    paid_activated_at: Optional[datetime] = None
+    paid_activated_by: Optional[str] = None
+
+
+class PaidPlanUpdate(BaseModel):
+    plan: str
+
+    @field_validator("plan")
+    @classmethod
+    def plan_valid(cls, v: str) -> str:
+        value = v.strip().lower()
+        if value not in {"pro", "business"}:
+            raise ValueError("Plan must be pro or business")
+        return value
+
+
+class InviteValidateRequest(BaseModel):
+    token: str
+
+
+class InviteValidateOut(BaseModel):
+    email: str
+    username: str
+    expires_at: datetime
+
+
+class OnboardingPasswordChange(BaseModel):
+    new_password: str
+
+
+class OnboardingOtpVerify(BaseModel):
+    otp: str
