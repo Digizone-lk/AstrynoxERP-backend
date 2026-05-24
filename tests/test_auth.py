@@ -93,7 +93,7 @@ def test_login_inactive_org(admin_client):
     # The org itself is inactive — user credentials are fine but login should be blocked
     from app.core.database import get_db as _get_db
     from tests.conftest import TestingSessionLocal
-    from app.models.organization import Organization as OrgModel
+    from app.modules.ims.models.organization import Organization as OrgModel
     db = TestingSessionLocal()
     try:
         org = db.query(OrgModel).first()

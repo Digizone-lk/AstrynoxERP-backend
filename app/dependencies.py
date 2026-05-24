@@ -1,13 +1,58 @@
 from uuid import UUID as PyUUID
 from typing import List, Optional
-from fastapi import Depends, HTTPException, status, Cookie, Header
+from datetime import datetime, timezone
+from fastapi import Depends, HTTPException, Request, status, Cookie, Header
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import decode_token
-from app.models.user import User, UserRole
+from app.core.config import settings
+from app.modules.ims.models.organization import Organization
+from app.modules.ims.models.user import User, UserRole
+
+
+TRIAL_ALLOWED_PATHS = {
+    "/api/auth/me",
+    "/api/auth/refresh",
+    "/api/auth/logout",
+}
+
+
+def _is_past(value) -> bool:
+    if value is None:
+        return False
+    now = datetime.now(timezone.utc)
+    if value.tzinfo is None:
+        now = now.replace(tzinfo=None)
+    return value < now
+
+
+def enforce_organization_access(db: Session, user: User, request: Optional[Request] = None) -> Organization:
+    org = db.query(Organization).filter(Organization.id == user.org_id).first()
+    if not org or not org.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Organization is inactive")
+
+    if org.subscription_status == "trial" and _is_past(org.trial_end_date):
+        org.subscription_status = "trial_expired"
+        db.commit()
+        db.refresh(org)
+
+    if org.subscription_status == "trial_expired":
+        path = request.url.path if request else ""
+        if path not in TRIAL_ALLOWED_PATHS:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail={
+                    "code": "TRIAL_EXPIRED",
+                    "message": "Your 14-day trial has ended. Please contact the platform admin to continue using the platform.",
+                    "admin_email": settings.PRODUCT_ADMIN_EMAIL,
+                },
+            )
+
+    return org
 
 
 def get_current_user(
+    request: Request,
     access_token: Optional[str] = Cookie(None),
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
@@ -39,6 +84,7 @@ def get_current_user(
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
+    enforce_organization_access(db, user, request)
     return user
 
 
