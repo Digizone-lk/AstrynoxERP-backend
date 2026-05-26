@@ -16,6 +16,8 @@ class UserSession(Base):
     device_info = Column(String(500), nullable=True)
     ip_address = Column(String(50), nullable=True)
     last_active_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    otp_required = Column(Boolean, default=False, nullable=False)
+    otp_verified_at = Column(DateTime(timezone=True), nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

@@ -13,6 +13,7 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     must_change_password: bool = False
     email_verified: bool = True
+    requires_otp_verification: bool = False
     onboarding_status: str = "completed"
     subscription_status: str = "trial"
     plan: Optional[str] = None

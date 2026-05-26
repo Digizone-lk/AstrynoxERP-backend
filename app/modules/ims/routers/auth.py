@@ -15,6 +15,7 @@ from app.modules.ims.models.user import User, UserRole
 from app.modules.ims.models.user_session import UserSession
 from app.modules.ims.models.password_reset_token import PasswordResetToken
 from app.modules.ims.models.onboarding_otp import OnboardingOtp
+from app.modules.ims.models.onboarding_otp_attempt import OnboardingOtpAttempt
 from app.modules.ims.schemas.auth import LoginRequest, TokenResponse, RegisterOrgRequest, ForgotPasswordRequest, ResetPasswordRequest
 from app.modules.ims.schemas.organization import OnboardingPasswordChange, OnboardingOtpVerify
 from app.modules.ims.schemas.user import UserOut
@@ -24,14 +25,97 @@ from app.modules.ims.services.audit import log_action
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
+OTP_SEND_LIMIT = 3
+OTP_SEND_WINDOW_MINUTES = 15
+OTP_VERIFY_LIMIT = 5
+OTP_VERIFY_WINDOW_MINUTES = 10
+LOGIN_OTP_INACTIVITY_DAYS = 3
+
 
 def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def _set_tokens(response: Response, user: User, db: Session, request: Request) -> TokenResponse:
+def _raise_otp_rate_limited(window_minutes: int) -> None:
+    raise HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail=f"Too many OTP requests. Please try again in {window_minutes} minutes.",
+    )
+
+
+def _enforce_otp_send_rate_limit(db: Session, user: User) -> None:
+    window_start = datetime.now(timezone.utc) - timedelta(minutes=OTP_SEND_WINDOW_MINUTES)
+    recent_count = db.query(func.count(OnboardingOtp.id)).filter(
+        OnboardingOtp.user_id == user.id,
+        OnboardingOtp.created_at >= window_start,
+    ).scalar()
+    if recent_count >= OTP_SEND_LIMIT:
+        _raise_otp_rate_limited(OTP_SEND_WINDOW_MINUTES)
+
+
+def _enforce_otp_verify_rate_limit(db: Session, user: User, request: Request) -> None:
+    window_start = datetime.now(timezone.utc) - timedelta(minutes=OTP_VERIFY_WINDOW_MINUTES)
+    recent_count = db.query(func.count(OnboardingOtpAttempt.id)).filter(
+        OnboardingOtpAttempt.user_id == user.id,
+        OnboardingOtpAttempt.created_at >= window_start,
+    ).scalar()
+    if recent_count >= OTP_VERIFY_LIMIT:
+        _raise_otp_rate_limited(OTP_VERIFY_WINDOW_MINUTES)
+
+    db.add(OnboardingOtpAttempt(
+        user_id=user.id,
+        ip_address=request.client.host if request.client else None,
+    ))
+    db.commit()
+
+
+def _session_requires_login_otp(db: Session, user: User) -> bool:
+    last_active_at = db.query(func.max(UserSession.last_active_at)).filter(
+        UserSession.user_id == user.id,
+    ).scalar()
+    if not last_active_at:
+        last_active_at = user.created_at
+        if not last_active_at:
+            return False
+
+    now = datetime.now(timezone.utc)
+    if last_active_at.tzinfo is None:
+        now = now.replace(tzinfo=None)
+    return last_active_at < now - timedelta(days=LOGIN_OTP_INACTIVITY_DAYS)
+
+
+def _token_requires_otp(request: Request) -> bool:
+    payload = getattr(request.state, "token_payload", {}) or {}
+    return payload.get("otp_required") is True
+
+
+def _revoke_refresh_session(db: Session, refresh_token: Optional[str]) -> None:
+    if not refresh_token:
+        return
+    token_hash = _hash_token(refresh_token)
+    session = db.query(UserSession).filter(
+        UserSession.refresh_token_hash == token_hash,
+        UserSession.is_active == True,
+    ).first()
+    if session:
+        session.is_active = False
+        db.commit()
+
+
+def _set_tokens(
+    response: Response,
+    user: User,
+    db: Session,
+    request: Request,
+    otp_required: bool = False,
+) -> TokenResponse:
     org = db.query(Organization).filter(Organization.id == user.org_id).first()
-    data = {"sub": str(user.id), "org_id": str(user.org_id), "role": user.role.value}
+    data = {
+        "sub": str(user.id),
+        "org_id": str(user.org_id),
+        "role": user.role.value,
+        "otp_required": otp_required,
+    }
     access_token = create_access_token(data)
     refresh_token = create_refresh_token(data)
 
@@ -46,6 +130,8 @@ def _set_tokens(response: Response, user: User, db: Session, request: Request) -
         refresh_token_hash=token_hash,
         device_info=device_info,
         ip_address=ip_address,
+        otp_required=otp_required,
+        otp_verified_at=None if otp_required else datetime.now(timezone.utc),
         expires_at=expires_at,
     )
     db.add(session)
@@ -72,6 +158,7 @@ def _set_tokens(response: Response, user: User, db: Session, request: Request) -
         refresh_token=refresh_token,
         must_change_password=user.must_change_password,
         email_verified=user.email_verified,
+        requires_otp_verification=otp_required,
         onboarding_status=org.onboarding_status if org else "completed",
         subscription_status=org.subscription_status if org else "trial",
         plan=org.plan if org else None,
@@ -151,7 +238,7 @@ def login(
             org.subscription_status = "trial_expired"
             db.commit()
 
-    return _set_tokens(response, user, db, request)
+    return _set_tokens(response, user, db, request, otp_required=_session_requires_login_otp(db, user))
 
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -196,7 +283,7 @@ def refresh(
     session.is_active = False
     db.commit()
 
-    return _set_tokens(response, user, db, request)
+    return _set_tokens(response, user, db, request, otp_required=session.otp_required)
 
 
 @router.post("/logout")
@@ -251,14 +338,16 @@ def onboarding_change_password(
 
 @router.post("/onboarding/send-otp", status_code=status.HTTP_200_OK)
 def send_onboarding_otp(
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     if user.must_change_password:
         raise HTTPException(status_code=400, detail="Password must be changed before OTP verification.")
-    if user.email_verified:
+    if user.email_verified and not _token_requires_otp(request):
         return {"message": "Email already verified."}
 
+    _enforce_otp_send_rate_limit(db, user)
     db.query(OnboardingOtp).filter(OnboardingOtp.user_id == user.id, OnboardingOtp.used == False).update({"used": True})
     otp = f"{secrets.randbelow(1000000):06d}"
     record = OnboardingOtp(
@@ -281,9 +370,13 @@ def send_onboarding_otp(
 def verify_onboarding_otp(
     payload: OnboardingOtpVerify,
     request: Request,
+    response: Response,
+    refresh_token: Optional[str] = Cookie(None),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    login_otp_required = _token_requires_otp(request)
+    _enforce_otp_verify_rate_limit(db, user, request)
     record = db.query(OnboardingOtp).filter(
         OnboardingOtp.user_id == user.id,
         OnboardingOtp.otp_hash == _hash_token(payload.otp),
@@ -302,6 +395,12 @@ def verify_onboarding_otp(
     user.email_verified = True
     db.commit()
     log_action(db, user, "onboarding_otp_verified", "user", str(user.id), ip_address=request.client.host if request.client else None)
+    if login_otp_required:
+        _revoke_refresh_session(db, refresh_token)
+        token_response = _set_tokens(response, user, db, request, otp_required=False)
+        data = token_response.model_dump()
+        data["message"] = "Email verified successfully."
+        return data
     return {"message": "Email verified successfully."}
 
 

@@ -29,6 +29,7 @@ def upgrade() -> None:
     op.add_column('users', sa.Column('username', sa.String(100), nullable=True))
     op.add_column('users', sa.Column('must_change_password', sa.Boolean(), nullable=False, server_default=sa.false()))
     op.add_column('users', sa.Column('email_verified', sa.Boolean(), nullable=False, server_default=sa.false()))
+    op.execute("UPDATE users SET email_verified = TRUE WHERE org_id IN (SELECT id FROM organizations WHERE onboarding_status = 'completed')")
     op.create_index(op.f('ix_users_username'), 'users', ['username'], unique=True)
 
     op.create_table(

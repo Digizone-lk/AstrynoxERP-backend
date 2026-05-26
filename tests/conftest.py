@@ -30,6 +30,7 @@ import app.modules.ims.models.quotation     # noqa
 import app.modules.ims.models.invoice       # noqa
 import app.modules.ims.models.audit_log     # noqa
 import app.modules.ims.models.user_session  # noqa
+import app.modules.ims.models.onboarding_otp_attempt  # noqa
 
 from app.main import app  # import after env vars are set
 
