@@ -2,18 +2,26 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Header
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, Cookie, status, Header
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.security import create_access_token, decode_token, hash_password
+from app.core.security import create_access_token, create_refresh_token_with_expiry, decode_token, hash_password
 from app.modules.ims.models.audit_log import AuditLog
 from app.modules.ims.models.organization import Organization
 from app.modules.ims.models.organization_invite import OrganizationInvite
+from app.modules.ims.models.product_admin_otp import ProductAdminOtp
+from app.modules.ims.models.product_admin_session import ProductAdminSession
 from app.modules.ims.models.user import User, UserRole
 from app.modules.ims.models.user_session import UserSession
 from app.modules.ims.schemas.audit_log import AuditLogOut
-from app.modules.ims.schemas.auth import ProductAdminLoginRequest, ProductAdminTokenResponse
+from app.modules.ims.schemas.auth import (
+    ProductAdminLoginRequest,
+    ProductAdminLoginResponse,
+    ProductAdminOtpVerifyRequest,
+    ProductAdminTokenResponse,
+)
 from app.modules.ims.schemas.organization import (
     InviteValidateOut,
     InviteValidateRequest,
@@ -27,9 +35,13 @@ from app.modules.ims.schemas.organization import (
     ProductAdminUserUpdate,
 )
 from app.modules.ims.schemas.user import UserOut
-from app.modules.ims.services.email import send_organization_invite_email
+from app.modules.ims.services.email import send_organization_invite_email, send_product_admin_otp_email
 
 router = APIRouter(prefix="/api/product-admin", tags=["product-admin"])
+
+PRODUCT_ADMIN_ACCESS_TOKEN_MINUTES = 30
+PRODUCT_ADMIN_REFRESH_TOKEN_HOURS = 3
+PRODUCT_ADMIN_OTP_EXPIRE_MINUTES = 10
 
 
 def _hash_token(value: str) -> str:
@@ -50,7 +62,43 @@ def _invite_link(token: str) -> str:
     return f"{settings.FRONTEND_URL}/org/invite/accept?token={token}"
 
 
-def get_product_admin(authorization: str = Header("")) -> str:
+def _is_expired(value) -> bool:
+    now = datetime.now(timezone.utc)
+    if value.tzinfo is None:
+        now = now.replace(tzinfo=None)
+    return value < now
+
+
+def _product_admin_token_data() -> dict:
+    return {"sub": "product_admin", "email": settings.PRODUCT_ADMIN_EMAIL}
+
+
+def _set_product_admin_tokens(response: Response, db: Session, request: Request) -> ProductAdminTokenResponse:
+    data = _product_admin_token_data()
+    access_token = create_access_token(data, expires_delta=timedelta(minutes=PRODUCT_ADMIN_ACCESS_TOKEN_MINUTES))
+    refresh_token = create_refresh_token_with_expiry(data, timedelta(hours=PRODUCT_ADMIN_REFRESH_TOKEN_HOURS))
+    db.add(ProductAdminSession(
+        email=settings.PRODUCT_ADMIN_EMAIL,
+        refresh_token_hash=_hash_token(refresh_token),
+        device_info=(request.headers.get("user-agent", "")[:500] or None),
+        ip_address=request.client.host if request.client else None,
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=PRODUCT_ADMIN_REFRESH_TOKEN_HOURS),
+    ))
+    db.commit()
+    response.set_cookie(
+        key="product_admin_refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=settings.ENVIRONMENT == "production",
+        samesite="lax",
+        max_age=PRODUCT_ADMIN_REFRESH_TOKEN_HOURS * 3600,
+    )
+    return ProductAdminTokenResponse(access_token=access_token, refresh_token=refresh_token)
+
+
+def get_product_admin(
+    authorization: str = Header(""),
+) -> str:
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     payload = decode_token(authorization[7:])
@@ -96,15 +144,101 @@ def _get_org_user_or_404(db: Session, org_id: UUID, user_id: UUID) -> User:
     return user
 
 
-@router.post("/login", response_model=ProductAdminTokenResponse)
-def product_admin_login(payload: ProductAdminLoginRequest):
+@router.post("/login", response_model=ProductAdminLoginResponse)
+def product_admin_login(payload: ProductAdminLoginRequest, db: Session = Depends(get_db)):
     if payload.email != settings.PRODUCT_ADMIN_EMAIL or payload.password != settings.PRODUCT_ADMIN_PASSWORD:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    token = create_access_token(
-        {"sub": "product_admin", "email": settings.PRODUCT_ADMIN_EMAIL},
-        expires_delta=timedelta(hours=8),
-    )
-    return ProductAdminTokenResponse(access_token=token)
+
+    db.query(ProductAdminOtp).filter(
+        ProductAdminOtp.email == settings.PRODUCT_ADMIN_EMAIL,
+        ProductAdminOtp.used == False,
+    ).update({"used": True})
+
+    otp = f"{secrets.randbelow(1000000):06d}"
+    challenge_token = secrets.token_urlsafe(32)
+    db.add(ProductAdminOtp(
+        email=settings.PRODUCT_ADMIN_EMAIL,
+        challenge_hash=_hash_token(challenge_token),
+        otp_hash=_hash_token(otp),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=PRODUCT_ADMIN_OTP_EXPIRE_MINUTES),
+    ))
+    db.commit()
+
+    if not send_product_admin_otp_email(settings.PRODUCT_ADMIN_EMAIL, otp):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not send admin OTP email. Please try again shortly.",
+        )
+    return ProductAdminLoginResponse(challenge_token=challenge_token)
+
+
+@router.post("/verify-otp", response_model=ProductAdminTokenResponse)
+def product_admin_verify_otp(
+    payload: ProductAdminOtpVerifyRequest,
+    response: Response,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    record = db.query(ProductAdminOtp).filter(
+        ProductAdminOtp.email == settings.PRODUCT_ADMIN_EMAIL,
+        ProductAdminOtp.challenge_hash == _hash_token(payload.challenge_token),
+        ProductAdminOtp.otp_hash == _hash_token(payload.otp),
+        ProductAdminOtp.used == False,
+    ).first()
+    if not record or _is_expired(record.expires_at):
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP.")
+
+    record.used = True
+    db.commit()
+    return _set_product_admin_tokens(response, db, request)
+
+
+@router.post("/refresh", response_model=ProductAdminTokenResponse)
+def product_admin_refresh(
+    response: Response,
+    request: Request,
+    product_admin_refresh_token: Optional[str] = Cookie(None),
+    db: Session = Depends(get_db),
+):
+    if not product_admin_refresh_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No refresh token")
+
+    payload = decode_token(product_admin_refresh_token)
+    if (
+        not payload
+        or payload.get("type") != "refresh"
+        or payload.get("sub") != "product_admin"
+        or payload.get("email") != settings.PRODUCT_ADMIN_EMAIL
+    ):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+
+    session = db.query(ProductAdminSession).filter(
+        ProductAdminSession.refresh_token_hash == _hash_token(product_admin_refresh_token),
+        ProductAdminSession.is_active == True,
+    ).first()
+    if not session or _is_expired(session.expires_at):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired or revoked")
+
+    session.is_active = False
+    db.commit()
+    return _set_product_admin_tokens(response, db, request)
+
+
+@router.post("/logout")
+def product_admin_logout(
+    response: Response,
+    product_admin_refresh_token: Optional[str] = Cookie(None),
+    db: Session = Depends(get_db),
+):
+    if product_admin_refresh_token:
+        session = db.query(ProductAdminSession).filter(
+            ProductAdminSession.refresh_token_hash == _hash_token(product_admin_refresh_token),
+        ).first()
+        if session:
+            session.is_active = False
+            db.commit()
+    response.delete_cookie("product_admin_refresh_token")
+    return {"message": "Logged out"}
 
 
 @router.post("/organizations/invite", response_model=ProductAdminInviteOut, status_code=status.HTTP_201_CREATED)

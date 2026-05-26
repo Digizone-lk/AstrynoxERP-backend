@@ -11,3 +11,5 @@ from app.modules.ims.models.password_reset_token import PasswordResetToken  # no
 from app.modules.ims.models.organization_invite import OrganizationInvite  # noqa
 from app.modules.ims.models.onboarding_otp import OnboardingOtp  # noqa
 from app.modules.ims.models.onboarding_otp_attempt import OnboardingOtpAttempt  # noqa
+from app.modules.ims.models.product_admin_otp import ProductAdminOtp  # noqa
+from app.modules.ims.models.product_admin_session import ProductAdminSession  # noqa

@@ -2,27 +2,74 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 from fastapi.testclient import TestClient
 from app.main import app
+from app.core.config import settings
 from tests.conftest import TestingSessionLocal
 from app.modules.ims.models.organization import Organization
 from app.modules.ims.models.user import User, UserRole
 from app.modules.ims.models.user_session import UserSession
 
 
-ADMIN_EMAIL = "brayanjayawardhana@gmail.com"
-ADMIN_PASSWORD = "Password123"
+ADMIN_EMAIL = settings.PRODUCT_ADMIN_EMAIL
+ADMIN_PASSWORD = settings.PRODUCT_ADMIN_PASSWORD
 
 
-def _product_admin_token():
+def _product_admin_token(monkeypatch):
+    sent = {}
+
+    def fake_send(to, otp):
+        sent["to"] = to
+        sent["otp"] = otp
+        return True
+
+    monkeypatch.setattr("app.modules.ims.routers.product_admin.send_product_admin_otp_email", fake_send)
     tc = TestClient(app)
     r = tc.post("/api/product-admin/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
     assert r.status_code == 200, r.text
-    return r.json()["access_token"]
+    assert r.json()["requires_otp_verification"] is True
+    verify = tc.post("/api/product-admin/verify-otp", json={
+        "challenge_token": r.json()["challenge_token"],
+        "otp": sent["otp"],
+    })
+    assert verify.status_code == 200, verify.text
+    return verify.json()["access_token"]
 
 
 def test_product_admin_login_rejects_wrong_password():
     tc = TestClient(app)
     r = tc.post("/api/product-admin/login", json={"email": ADMIN_EMAIL, "password": "wrong"})
     assert r.status_code == 401
+
+
+def test_product_admin_login_requires_otp(monkeypatch):
+    sent = {}
+
+    def fake_send(to, otp):
+        sent["to"] = to
+        sent["otp"] = otp
+        return True
+
+    monkeypatch.setattr("app.modules.ims.routers.product_admin.send_product_admin_otp_email", fake_send)
+    tc = TestClient(app)
+    login = tc.post("/api/product-admin/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+    assert login.status_code == 200, login.text
+    data = login.json()
+    assert data["requires_otp_verification"] is True
+    assert data["challenge_token"]
+    assert "access_token" not in data
+    assert sent["to"] == ADMIN_EMAIL
+
+    verify = tc.post("/api/product-admin/verify-otp", json={
+        "challenge_token": data["challenge_token"],
+        "otp": sent["otp"],
+    })
+    assert verify.status_code == 200, verify.text
+    assert verify.json()["access_token"]
+    assert verify.json()["refresh_token"]
+    assert tc.cookies.get("product_admin_refresh_token")
+
+    refreshed = tc.post("/api/product-admin/refresh")
+    assert refreshed.status_code == 200, refreshed.text
+    assert refreshed.json()["access_token"]
 
 
 def test_product_admin_invite_creates_trial_org_and_temp_login(monkeypatch):
@@ -37,7 +84,7 @@ def test_product_admin_invite_creates_trial_org_and_temp_login(monkeypatch):
         })
 
     monkeypatch.setattr("app.modules.ims.routers.product_admin.send_organization_invite_email", fake_send)
-    token = _product_admin_token()
+    token = _product_admin_token(monkeypatch)
 
     tc = TestClient(app)
     r = tc.post(
@@ -62,8 +109,8 @@ def test_product_admin_invite_creates_trial_org_and_temp_login(monkeypatch):
     assert login_data["subscription_status"] == "trial"
 
 
-def test_product_admin_can_activate_paid_plan(admin_client):
-    token = _product_admin_token()
+def test_product_admin_can_activate_paid_plan(admin_client, monkeypatch):
+    token = _product_admin_token(monkeypatch)
     db = TestingSessionLocal()
     try:
         org = db.query(Organization).first()
@@ -118,7 +165,7 @@ def _invited_onboarding_client(monkeypatch):
         return True
 
     monkeypatch.setattr("app.modules.ims.routers.product_admin.send_organization_invite_email", fake_invite_send)
-    token = _product_admin_token()
+    token = _product_admin_token(monkeypatch)
 
     tc = TestClient(app)
     invite = tc.post(
@@ -223,8 +270,8 @@ def test_inactive_user_requires_otp_on_login(monkeypatch):
     assert allowed.status_code == 200, allowed.text
 
 
-def test_product_admin_can_view_and_manage_organizations(admin_client):
-    token = _product_admin_token()
+def test_product_admin_can_view_and_manage_organizations(admin_client, monkeypatch):
+    token = _product_admin_token(monkeypatch)
     db = TestingSessionLocal()
     try:
         org = db.query(Organization).first()
@@ -278,7 +325,7 @@ def test_product_admin_can_view_and_manage_organizations(admin_client):
     assert active.json()["is_active"] is True
 
 
-def test_product_admin_can_manage_org_users_and_logs(admin_client):
+def test_product_admin_can_manage_org_users_and_logs(admin_client, monkeypatch):
     created = admin_client.post("/api/users/", json={
         "email": "new-admin@acme.com",
         "full_name": "New Admin",
@@ -288,7 +335,7 @@ def test_product_admin_can_manage_org_users_and_logs(admin_client):
     assert created.status_code == 201, created.text
     target_user_id = created.json()["id"]
 
-    token = _product_admin_token()
+    token = _product_admin_token(monkeypatch)
     headers = {"Authorization": f"Bearer {token}"}
     db = TestingSessionLocal()
     try:
