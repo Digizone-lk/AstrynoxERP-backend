@@ -11,6 +11,8 @@ from app.modules.ims.models.audit_log import AuditLog
 from app.modules.ims.models.organization import Organization
 from app.modules.ims.models.organization_invite import OrganizationInvite
 from app.modules.ims.models.user import User, UserRole
+from app.modules.ims.models.user_session import UserSession
+from app.modules.ims.schemas.audit_log import AuditLogOut
 from app.modules.ims.schemas.auth import ProductAdminLoginRequest, ProductAdminTokenResponse
 from app.modules.ims.schemas.organization import (
     InviteValidateOut,
@@ -19,7 +21,12 @@ from app.modules.ims.schemas.organization import (
     ProductAdminInviteCreate,
     ProductAdminInviteOut,
     ProductAdminOrgOut,
+    ProductAdminOrgStatusUpdate,
+    ProductAdminSubscriptionUpdate,
+    ProductAdminSuperAdminTransfer,
+    ProductAdminUserUpdate,
 )
+from app.modules.ims.schemas.user import UserOut
 from app.modules.ims.services.email import send_organization_invite_email
 
 router = APIRouter(prefix="/api/product-admin", tags=["product-admin"])
@@ -73,6 +80,20 @@ def _write_org_audit(
         ip_address=ip_address,
     ))
     db.commit()
+
+
+def _get_org_or_404(db: Session, org_id: UUID) -> Organization:
+    org = db.query(Organization).filter(Organization.id == org_id).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    return org
+
+
+def _get_org_user_or_404(db: Session, org_id: UUID, user_id: UUID) -> User:
+    user = db.query(User).filter(User.id == user_id, User.org_id == org_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
 
 
 @router.post("/login", response_model=ProductAdminTokenResponse)
@@ -249,6 +270,229 @@ def list_organizations(
     return db.query(Organization).order_by(Organization.created_at.desc()).all()
 
 
+@router.get("/organizations/{org_id}", response_model=ProductAdminOrgOut)
+def get_organization(
+    org_id: UUID,
+    db: Session = Depends(get_db),
+    admin_email: str = Depends(get_product_admin),
+):
+    return _get_org_or_404(db, org_id)
+
+
+@router.patch("/organizations/{org_id}/subscription", response_model=ProductAdminOrgOut)
+def update_organization_subscription(
+    org_id: UUID,
+    payload: ProductAdminSubscriptionUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin_email: str = Depends(get_product_admin),
+):
+    org = _get_org_or_404(db, org_id)
+    old = {"subscription_status": org.subscription_status, "plan": org.plan}
+
+    if payload.version == "trial":
+        org.subscription_status = "trial"
+        org.plan = None
+        if not org.trial_start_date:
+            org.trial_start_date = datetime.now(timezone.utc)
+        if not org.trial_end_date:
+            org.trial_end_date = datetime.now(timezone.utc) + timedelta(days=14)
+    else:
+        org.subscription_status = "paid"
+        org.plan = payload.version
+        org.paid_activated_at = datetime.now(timezone.utc)
+        org.paid_activated_by = admin_email
+
+    db.commit()
+    db.refresh(org)
+    _write_org_audit(
+        db,
+        org.id,
+        "organization_subscription_updated",
+        "organization",
+        str(org.id),
+        {"old": old, "new": {"subscription_status": org.subscription_status, "plan": org.plan}},
+        request.client.host if request.client else None,
+    )
+    return org
+
+
+@router.patch("/organizations/{org_id}/status", response_model=ProductAdminOrgOut)
+def update_organization_status(
+    org_id: UUID,
+    payload: ProductAdminOrgStatusUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin_email: str = Depends(get_product_admin),
+):
+    org = _get_org_or_404(db, org_id)
+    old_status = org.is_active
+    org.is_active = payload.is_active
+
+    if not payload.is_active:
+        db.query(UserSession).filter(
+            UserSession.org_id == org.id,
+            UserSession.is_active == True,
+        ).update({"is_active": False})
+
+    db.commit()
+    db.refresh(org)
+    _write_org_audit(
+        db,
+        org.id,
+        "organization_status_updated",
+        "organization",
+        str(org.id),
+        {"old": old_status, "new": org.is_active},
+        request.client.host if request.client else None,
+    )
+    return org
+
+
+@router.get("/organizations/{org_id}/users", response_model=list[UserOut])
+def list_organization_users(
+    org_id: UUID,
+    db: Session = Depends(get_db),
+    admin_email: str = Depends(get_product_admin),
+):
+    _get_org_or_404(db, org_id)
+    return db.query(User).filter(User.org_id == org_id).order_by(User.created_at.asc()).all()
+
+
+@router.patch("/organizations/{org_id}/users/{user_id}", response_model=UserOut)
+def update_organization_user(
+    org_id: UUID,
+    user_id: UUID,
+    payload: ProductAdminUserUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin_email: str = Depends(get_product_admin),
+):
+    _get_org_or_404(db, org_id)
+    user = _get_org_user_or_404(db, org_id, user_id)
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        return user
+
+    old = {"role": user.role.value, "is_active": user.is_active}
+    if payload.role is not None:
+        user.role = UserRole(payload.role)
+    if payload.is_active is not None:
+        user.is_active = payload.is_active
+        if not payload.is_active:
+            db.query(UserSession).filter(
+                UserSession.user_id == user.id,
+                UserSession.is_active == True,
+            ).update({"is_active": False})
+
+    db.commit()
+    db.refresh(user)
+    _write_org_audit(
+        db,
+        org_id,
+        "organization_user_updated",
+        "user",
+        str(user.id),
+        {"old": old, "new": {"role": user.role.value, "is_active": user.is_active}},
+        request.client.host if request.client else None,
+    )
+    return user
+
+
+@router.post("/organizations/{org_id}/users/{user_id}/activate", response_model=UserOut)
+def activate_organization_user(
+    org_id: UUID,
+    user_id: UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin_email: str = Depends(get_product_admin),
+):
+    return update_organization_user(
+        org_id,
+        user_id,
+        ProductAdminUserUpdate(is_active=True),
+        request,
+        db,
+        admin_email,
+    )
+
+
+@router.post("/organizations/{org_id}/users/{user_id}/deactivate", response_model=UserOut)
+def deactivate_organization_user(
+    org_id: UUID,
+    user_id: UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin_email: str = Depends(get_product_admin),
+):
+    return update_organization_user(
+        org_id,
+        user_id,
+        ProductAdminUserUpdate(is_active=False),
+        request,
+        db,
+        admin_email,
+    )
+
+
+@router.post("/organizations/{org_id}/super-admin", response_model=UserOut)
+def transfer_organization_super_admin(
+    org_id: UUID,
+    payload: ProductAdminSuperAdminTransfer,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin_email: str = Depends(get_product_admin),
+):
+    _get_org_or_404(db, org_id)
+    target = _get_org_user_or_404(db, org_id, payload.user_id)
+    if not target.is_active:
+        raise HTTPException(status_code=400, detail="Cannot make an inactive user the super admin")
+
+    previous_super_admins = db.query(User).filter(
+        User.org_id == org_id,
+        User.role == UserRole.SUPER_ADMIN,
+        User.id != target.id,
+    ).all()
+    previous_ids = [str(user.id) for user in previous_super_admins]
+    for user in previous_super_admins:
+        user.role = UserRole.ACCOUNTANT
+
+    target.role = UserRole.SUPER_ADMIN
+    db.commit()
+    db.refresh(target)
+    _write_org_audit(
+        db,
+        org_id,
+        "organization_super_admin_transferred",
+        "user",
+        str(target.id),
+        {"previous_super_admin_ids": previous_ids, "new_super_admin_id": str(target.id)},
+        request.client.host if request.client else None,
+    )
+    return target
+
+
+@router.get("/organizations/{org_id}/logs", response_model=list[AuditLogOut])
+def list_organization_logs(
+    org_id: UUID,
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    admin_email: str = Depends(get_product_admin),
+):
+    _get_org_or_404(db, org_id)
+    if limit > 200:
+        limit = 200
+    return (
+        db.query(AuditLog)
+        .filter(AuditLog.org_id == org_id)
+        .order_by(AuditLog.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
 @router.post("/organizations/{org_id}/activate-paid", response_model=ProductAdminOrgOut)
 def activate_paid_plan(
     org_id: UUID,
@@ -257,9 +501,7 @@ def activate_paid_plan(
     db: Session = Depends(get_db),
     admin_email: str = Depends(get_product_admin),
 ):
-    org = db.query(Organization).filter(Organization.id == org_id).first()
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
+    org = _get_org_or_404(db, org_id)
 
     org.subscription_status = "paid"
     org.plan = payload.plan

@@ -115,6 +115,41 @@ class PaidPlanUpdate(BaseModel):
         return value
 
 
+class ProductAdminSubscriptionUpdate(BaseModel):
+    version: str
+
+    @field_validator("version")
+    @classmethod
+    def version_valid(cls, v: str) -> str:
+        value = v.strip().lower()
+        if value not in {"trial", "pro", "business"}:
+            raise ValueError("Version must be trial, pro, or business")
+        return value
+
+
+class ProductAdminOrgStatusUpdate(BaseModel):
+    is_active: bool
+
+
+class ProductAdminUserUpdate(BaseModel):
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+
+    @field_validator("role")
+    @classmethod
+    def role_valid(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        value = v.strip().lower()
+        if value not in {"super_admin", "accountant", "sales", "viewer"}:
+            raise ValueError("Role must be super_admin, accountant, sales, or viewer")
+        return value
+
+
+class ProductAdminSuperAdminTransfer(BaseModel):
+    user_id: UUID
+
+
 class InviteValidateRequest(BaseModel):
     token: str
 

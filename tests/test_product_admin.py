@@ -1,8 +1,10 @@
 from datetime import datetime, timedelta, timezone
+from uuid import UUID
 from fastapi.testclient import TestClient
 from app.main import app
 from tests.conftest import TestingSessionLocal
 from app.modules.ims.models.organization import Organization
+from app.modules.ims.models.user import User, UserRole
 from app.modules.ims.models.user_session import UserSession
 
 
@@ -219,3 +221,124 @@ def test_inactive_user_requires_otp_on_login(monkeypatch):
 
     allowed = tc.get("/api/clients/")
     assert allowed.status_code == 200, allowed.text
+
+
+def test_product_admin_can_view_and_manage_organizations(admin_client):
+    token = _product_admin_token()
+    db = TestingSessionLocal()
+    try:
+        org = db.query(Organization).first()
+        org_id = str(org.id)
+    finally:
+        db.close()
+
+    tc = TestClient(app)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    listed = tc.get("/api/product-admin/organizations", headers=headers)
+    assert listed.status_code == 200, listed.text
+    assert any(item["id"] == org_id for item in listed.json())
+
+    detail = tc.get(f"/api/product-admin/organizations/{org_id}", headers=headers)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["id"] == org_id
+
+    pro = tc.patch(
+        f"/api/product-admin/organizations/{org_id}/subscription",
+        headers=headers,
+        json={"version": "pro"},
+    )
+    assert pro.status_code == 200, pro.text
+    assert pro.json()["subscription_status"] == "paid"
+    assert pro.json()["plan"] == "pro"
+
+    trial = tc.patch(
+        f"/api/product-admin/organizations/{org_id}/subscription",
+        headers=headers,
+        json={"version": "trial"},
+    )
+    assert trial.status_code == 200, trial.text
+    assert trial.json()["subscription_status"] == "trial"
+    assert trial.json()["plan"] is None
+
+    inactive = tc.patch(
+        f"/api/product-admin/organizations/{org_id}/status",
+        headers=headers,
+        json={"is_active": False},
+    )
+    assert inactive.status_code == 200, inactive.text
+    assert inactive.json()["is_active"] is False
+
+    active = tc.patch(
+        f"/api/product-admin/organizations/{org_id}/status",
+        headers=headers,
+        json={"is_active": True},
+    )
+    assert active.status_code == 200, active.text
+    assert active.json()["is_active"] is True
+
+
+def test_product_admin_can_manage_org_users_and_logs(admin_client):
+    created = admin_client.post("/api/users/", json={
+        "email": "new-admin@acme.com",
+        "full_name": "New Admin",
+        "password": "Secret123!",
+        "role": "viewer",
+    })
+    assert created.status_code == 201, created.text
+    target_user_id = created.json()["id"]
+
+    token = _product_admin_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    db = TestingSessionLocal()
+    try:
+        org = db.query(Organization).first()
+        org_id = str(org.id)
+        original_admin = db.query(User).filter(User.org_id == org.id, User.role == UserRole.SUPER_ADMIN).first()
+        original_admin_id = original_admin.id
+    finally:
+        db.close()
+
+    tc = TestClient(app)
+    users = tc.get(f"/api/product-admin/organizations/{org_id}/users", headers=headers)
+    assert users.status_code == 200, users.text
+    assert any(user["id"] == target_user_id for user in users.json())
+
+    updated = tc.patch(
+        f"/api/product-admin/organizations/{org_id}/users/{target_user_id}",
+        headers=headers,
+        json={"role": "sales", "is_active": False},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["role"] == "sales"
+    assert updated.json()["is_active"] is False
+
+    activated = tc.post(
+        f"/api/product-admin/organizations/{org_id}/users/{target_user_id}/activate",
+        headers=headers,
+    )
+    assert activated.status_code == 200, activated.text
+    assert activated.json()["is_active"] is True
+
+    transferred = tc.post(
+        f"/api/product-admin/organizations/{org_id}/super-admin",
+        headers=headers,
+        json={"user_id": target_user_id},
+    )
+    assert transferred.status_code == 200, transferred.text
+    assert transferred.json()["role"] == "super_admin"
+
+    db = TestingSessionLocal()
+    try:
+        old_admin = db.query(User).filter(User.id == original_admin_id).first()
+        new_admin = db.query(User).filter(User.id == UUID(target_user_id)).first()
+        assert old_admin.role == UserRole.ACCOUNTANT
+        assert new_admin.role == UserRole.SUPER_ADMIN
+    finally:
+        db.close()
+
+    logs = tc.get(f"/api/product-admin/organizations/{org_id}/logs", headers=headers)
+    assert logs.status_code == 200, logs.text
+    actions = {log["action"] for log in logs.json()}
+    assert "organization_user_updated" in actions
+    assert "organization_super_admin_transferred" in actions
