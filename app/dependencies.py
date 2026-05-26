@@ -17,6 +17,16 @@ TRIAL_ALLOWED_PATHS = {
 }
 
 
+OTP_REQUIRED_ALLOWED_PATHS = {
+    "/api/auth/me",
+    "/api/auth/refresh",
+    "/api/auth/logout",
+    "/api/auth/onboarding/change-password",
+    "/api/auth/onboarding/send-otp",
+    "/api/auth/onboarding/verify-otp",
+}
+
+
 def _is_past(value) -> bool:
     if value is None:
         return False
@@ -70,6 +80,7 @@ def get_current_user(
     payload = decode_token(token)
     if not payload or payload.get("type") != "access":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    request.state.token_payload = payload
 
     user_id_str = payload.get("sub")
     if not user_id_str:
@@ -85,6 +96,14 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
     enforce_organization_access(db, user, request)
+    if payload.get("otp_required") is True and request.url.path not in OTP_REQUIRED_ALLOWED_PATHS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "OTP_REQUIRED",
+                "message": "OTP verification is required before continuing.",
+            },
+        )
     return user
 
 

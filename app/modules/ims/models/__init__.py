@@ -10,3 +10,4 @@ from app.modules.ims.models.user_session import UserSession  # noqa
 from app.modules.ims.models.password_reset_token import PasswordResetToken  # noqa
 from app.modules.ims.models.organization_invite import OrganizationInvite  # noqa
 from app.modules.ims.models.onboarding_otp import OnboardingOtp  # noqa
+from app.modules.ims.models.onboarding_otp_attempt import OnboardingOtpAttempt  # noqa
