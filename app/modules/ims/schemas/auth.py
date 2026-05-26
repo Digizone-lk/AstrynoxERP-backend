@@ -43,6 +43,18 @@ class ProductAdminLoginRequest(BaseModel):
     password: str
 
 
+class ProductAdminLoginResponse(BaseModel):
+    challenge_token: str
+    requires_otp_verification: bool = True
+    message: str = "OTP sent to product admin email."
+
+
+class ProductAdminOtpVerifyRequest(BaseModel):
+    challenge_token: str
+    otp: str
+
+
 class ProductAdminTokenResponse(BaseModel):
     access_token: str
+    refresh_token: str = ""
     token_type: str = "bearer"

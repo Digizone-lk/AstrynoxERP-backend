@@ -191,3 +191,27 @@ def send_onboarding_otp_email(to: str, otp: str) -> bool:
     """
 
     return _send(to, subject, html, text)
+
+
+def send_product_admin_otp_email(to: str, otp: str) -> bool:
+    subject = "Your Astrynox admin verification code"
+    safe_otp = html_lib.escape(otp)
+
+    text = (
+        "Use this OTP to complete your Astrynox ERP admin login.\n\n"
+        f"OTP: {otp}\n\n"
+        "This code expires in 10 minutes."
+    )
+
+    html = f"""
+    <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px;color:#1e293b">
+      <h2 style="color:#111827;margin-bottom:4px">Astrynox ERP Admin</h2>
+      <p style="color:#64748b;margin-top:0">Admin login verification</p>
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0">
+      <p>Use this OTP to complete your admin login:</p>
+      <p style="font-size:28px;font-weight:700;letter-spacing:4px">{safe_otp}</p>
+      <p style="color:#64748b;font-size:13px">This code expires in 10 minutes.</p>
+    </div>
+    """
+
+    return _send(to, subject, html, text)
