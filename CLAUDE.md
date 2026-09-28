@@ -10,6 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - Before any architectural work, read `docs/prd.md`. It is the source of truth for the HR module and the platform core.
 - Never modify `docs/prd.md`. It is maintained outside the repo and re-exported when decisions change.
+- All work branches from `dev` and PRs target `dev`. Never open PRs against `main`; `main` is updated manually after local verification.
 
 ## Direction (from docs/prd.md)
 
