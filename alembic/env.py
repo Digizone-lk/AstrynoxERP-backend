@@ -9,9 +9,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.core.config import settings
 from app.core.database import Base
 import app.modules.ims.models  # noqa: F401 – ensure all models are registered
+import app.modules.platform.models  # noqa: F401 – ensure all models are registered
 
 config = context.config
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# ALEMBIC_DATABASE_URL lets tests point migrations at a scratch Postgres database
+# without touching settings.DATABASE_URL (which the rest of the app reads at import
+# time). Normal CLI usage (`alembic upgrade head`) is unaffected.
+config.set_main_option("sqlalchemy.url", os.environ.get("ALEMBIC_DATABASE_URL", settings.DATABASE_URL))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
