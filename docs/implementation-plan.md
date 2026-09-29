@@ -26,25 +26,29 @@ Postgres-marked tests (subtree, as-of-date, RLS isolation). Merged: PR #35
 IDs to write relationship tuples against), 0.7 (workflow engine's "reporting
 manager" / "department head" approver resolution reads this directly).
 
-### 0.2 — Platform audit log ⬜ Not started
+### 0.2 — Platform audit log ✅ Done
 
 A shared, generalized version of `ims`'s `log_action()` pattern
-(`app/modules/ims/services/audit.py`), moved to `platform/` so every module writes
-through one audit trail. Small and self-contained.
+(`app/modules/ims/services/audit.py`), added to `platform/` so every module can
+write through one audit trail (`ims`'s own audit log stays as-is for BillFlow).
 
-**Scope:**
-- `platform/models/audit_log.py` — org_id, actor (user or AI), action, resource
-  type/id, before/after payload, timestamp. RLS per the pattern in
-  `architecture.md` §3.
-- `platform/services/audit.py::log_action()` — called last, after commit, same
-  discipline as the existing `ims` audit service.
-- Postgres-marked tests: write isolation between orgs, ordering, that a failed
-  main action never produces an orphaned audit row.
+**Delivered:**
+- `platform/models/audit_log.py` — `PlatformAuditLog` (named to avoid colliding
+  with `ims`'s existing `AuditLog` class in SQLAlchemy's shared declarative
+  registry — see the model docstring). org_id, `actor_type`/`actor_id`/
+  `actor_label` (user, AI, or system — `actor_id` not FK'd, same rationale as
+  `org_unit_assignments.person_id`), action, resource type/id, `before_data`/
+  `after_data`/`extra_data`, timestamp. RLS enabled + forced, same policy pattern
+  as the org tree tables.
+- `platform/services/audit.py::log_action()` — sets its own RLS tenant context
+  and commits independently, per the "call it last, after the main commit"
+  convention in `CLAUDE.md`.
+- Postgres-marked tests (`tests/platform/test_audit_log.py`): field persistence,
+  AI/system actors, ordering, no orphaned row when the main action fails before
+  logging, write isolation between two orgs, RLS fail-closed with no context, and
+  raw-SQL cross-tenant insert rejection.
 
 **Depends on:** nothing (doesn't need Keycloak, OpenFGA, or the org tree).
-**Recommended next** — smallest, most isolated remaining Phase 0 item, and every
-later milestone (workflow engine, access-management UI, AI actions) needs it to
-already exist rather than bolting it on retroactively.
 
 ### 0.3 — Identity: Keycloak ⬜ Not started
 
@@ -134,7 +138,7 @@ approvals (never alter locked parts). Overlay storage per template version.
 ```mermaid
 flowchart LR
     P01["0.1 Org tree ✅"]
-    P02["0.2 Audit log"]
+    P02["0.2 Audit log ✅"]
     P03["0.3 Keycloak"]
     P04["0.4 OpenFGA"]
     P05["0.5 OPA"]
@@ -155,13 +159,10 @@ flowchart LR
 
 ### Suggested next step
 
-**0.2 (audit log)** — smallest, fully self-contained, unblocks nothing but unblocks
-itself being needed later. Good single-session task.
-
-After that, **0.3 (Keycloak)** is the real critical-path item: almost everything
-else (0.4, 0.6, and meaningful end-to-end testing of 0.7) wants real identity
-underneath it. It's also the most infra-heavy piece, so it's worth scheduling as its
-own dedicated block rather than picked up incidentally.
+With 0.1 and 0.2 done, **0.3 (Keycloak)** is the real critical-path item: almost
+everything else (0.4, 0.6, and meaningful end-to-end testing of 0.7) wants real
+identity underneath it. It's also the most infra-heavy piece, so it's worth
+scheduling as its own dedicated block rather than picked up incidentally.
 
 ---
 

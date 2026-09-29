@@ -127,3 +127,45 @@ def as_tenant(pg_session):
         pg_session.execute(text(f"SET LOCAL ROLE {RLS_TEST_ROLE}"))
         set_tenant_context(pg_session, org_id)
     return _use
+
+
+PLATFORM_TABLES_FOR_TRUNCATION = [
+    "org_unit_heads",
+    "org_unit_reporting_lines",
+    "org_unit_assignments",
+    "org_unit_closures",
+    "org_units",
+    "platform_audit_logs",
+]
+
+
+@pytest.fixture()
+def pg_committing_session(pg_engine):
+    """For code paths that call db.commit() themselves (e.g.
+    app.modules.platform.services.audit.log_action) — pg_session's rollback-based
+    cleanup can't undo a real commit. Truncates every platform table plus
+    organizations after the test instead, same as tests/conftest.py's clean_db."""
+    Session = sessionmaker(bind=pg_engine, future=True)
+    session = Session()
+    yield session
+    session.rollback()
+    session.close()
+    with pg_engine.connect() as conn:
+        conn.execute(text(
+            f"TRUNCATE {', '.join(PLATFORM_TABLES_FOR_TRUNCATION)}, organizations RESTART IDENTITY CASCADE"
+        ))
+        conn.commit()
+
+
+@pytest.fixture()
+def make_org_committing(pg_committing_session):
+    """Same as make_org, but for use with pg_committing_session."""
+    def _make(name="Acme Corp", slug=None):
+        org_id = uuid.uuid4()
+        pg_committing_session.execute(
+            text("INSERT INTO organizations (id, name, slug) VALUES (:id, :name, :slug)"),
+            {"id": org_id, "name": name, "slug": slug or f"org-{org_id.hex[:8]}"},
+        )
+        pg_committing_session.flush()
+        return org_id
+    return _make
